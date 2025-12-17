@@ -86,7 +86,9 @@ class EnhancedStaceyBurkeScanner:
         """
         Detect FRD (First Red DAY) and FGD (First Green DAY) patterns on DAILY timeframe
 
-        CRITICAL: These signals ONLY come from DAILY candles!
+        CRITICAL RULE: FGD/FRD only trigger AFTER daily candle is fully formed!
+        - Do NOT analyze today's candle while it's still forming
+        - Only look at COMPLETED daily candles
 
         Rules:
         - FRD: First RED daily candle after 3+ consecutive GREEN daily candles
@@ -97,48 +99,65 @@ class EnhancedStaceyBurkeScanner:
         if len(daily_df) < min_consecutive + 1:
             return signals
 
-        # Calculate consecutive runs on DAILY timeframe
+        # IMPORTANT: Skip today's candle if it's still forming
+        # Only analyze completed candles (exclude the last one if current day)
+        analysis_df = daily_df.copy()
+        current_time = pd.Timestamp.now()
+
+        # Check if last candle is for today (still forming)
+        if not analysis_df.empty:
+            last_candle_time = analysis_df.index[-1]
+            if last_candle_time.date() == current_time.date():
+                # Skip today's forming candle
+                analysis_df = analysis_df.iloc[:-1]
+
+        if len(analysis_df) < min_consecutive + 1:
+            return signals
+
+        # Calculate consecutive runs on COMPLETED DAILY candles only
         consecutive_greens = 0
         consecutive_reds = 0
         daily_signals = []
 
         # Track consecutive daily candles
-        for i in range(len(daily_df)):
-            if daily_df.iloc[i]['close'] > daily_df.iloc[i]['open']:  # Green daily candle
+        for i in range(len(analysis_df)):
+            if analysis_df.iloc[i]['close'] > analysis_df.iloc[i]['open']:  # Green daily candle
                 consecutive_greens += 1
                 consecutive_reds = 0
 
                 # Check if this is FGD (after 3+ reds)
-                if consecutive_reds >= min_consecutive and i >= min_consecutive:
+                if consecutive_reds >= min_consecutive:
                     daily_signals.append({
                         'type': 'FGD',
-                        'time': daily_df.index[i],
-                        'price': daily_df.iloc[i]['close'],
-                        'high': daily_df.iloc[i]['high'],
-                        'low': daily_df.iloc[i]['low'],
+                        'time': analysis_df.index[i],
+                        'price': analysis_df.iloc[i]['close'],
+                        'high': analysis_df.iloc[i]['high'],
+                        'low': analysis_df.iloc[i]['low'],
                         'consecutive_reds': consecutive_reds,
-                        'entry_zone': daily_df.iloc[i]['low'],  # Enter below FGD low
+                        'entry_zone': analysis_df.iloc[i]['low'],  # Enter below FGD low
                         'action': 'LONG',
-                        'stop_level': daily_df.iloc[i]['low'] * 0.998,  # 0.2% buffer below
-                        'target': daily_df.iloc[i-min_consecutive]['high']  # Previous high
+                        'stop_level': analysis_df.iloc[i]['low'] * 0.998,  # 0.2% buffer below
+                        'target': analysis_df.iloc[i-min_consecutive]['high'],  # Previous high
+                        'is_completed': True  # This is a completed signal
                     })
             else:  # Red daily candle
                 consecutive_reds += 1
                 consecutive_greens = 0
 
                 # Check if this is FRD (after 3+ greens)
-                if consecutive_greens >= min_consecutive and i >= min_consecutive:
+                if consecutive_greens >= min_consecutive:
                     daily_signals.append({
                         'type': 'FRD',
-                        'time': daily_df.index[i],
-                        'price': daily_df.iloc[i]['close'],
-                        'high': daily_df.iloc[i]['high'],
-                        'low': daily_df.iloc[i]['low'],
+                        'time': analysis_df.index[i],
+                        'price': analysis_df.iloc[i]['close'],
+                        'high': analysis_df.iloc[i]['high'],
+                        'low': analysis_df.iloc[i]['low'],
                         'consecutive_greens': consecutive_greens,
-                        'entry_zone': daily_df.iloc[i]['high'],  # Enter above FRD high
+                        'entry_zone': analysis_df.iloc[i]['high'],  # Enter above FRD high
                         'action': 'SHORT',
-                        'stop_level': daily_df.iloc[i]['high'] * 1.002,  # 0.2% buffer above
-                        'target': daily_df.iloc[i-min_consecutive]['low']  # Previous low
+                        'stop_level': analysis_df.iloc[i]['high'] * 1.002,  # 0.2% buffer above
+                        'target': analysis_df.iloc[i-min_consecutive]['low'],  # Previous low
+                        'is_completed': True  # This is a completed signal
                     })
 
         return daily_signals
@@ -419,6 +438,9 @@ class EnhancedStaceyBurkeScanner:
                             print(f"     Stop: {rec['stop']:.5f}")
                         if rec.get('target'):
                             print(f"     Target: {rec['target']:.5f}")
+                    elif 'WATCH' in rec['type']:
+                        print(f"  [{rec['type']}] {rec['confidence']}: {rec['reason']}")
+                        print(f"     Note: Today's candle is still forming - no new signals")
                     else:
                         print(f"  [{rec['type']}] {rec['confidence']}: {rec['reason']}")
                         if rec.get('current_daily_streak'):
