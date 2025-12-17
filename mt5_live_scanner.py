@@ -49,8 +49,8 @@ class StaceyBurkeLiveScanner:
         self.server = "ACGMarkets-Main"
 
         self.major_pairs = [
-            "EURUSD", "GBPUSD", "AUDUSD", "USDJPY",
-            "NZDUSD", "USDCAD", "USDCHF"
+            "EURUSD.pro", "GBPUSD.pro", "AUDUSD.pro", "USDJPY.pro",
+            "NZDUSD.pro", "USDCAD.pro", "USDCHF.pro"
         ]
 
     def connect_to_mt5(self):
