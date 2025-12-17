@@ -261,15 +261,19 @@ class SessionAnalyzer:
         if len(df) < 24:
             return manipulation_zones
 
-        # Find Asian range
-        asian_candles = []
-        for i in range(-24, -18):
-            if i >= -len(df):
-                asian_candles.append(df.iloc[i])
+        # Get current date
+        current_date = df.index[-1].date()
+
+        # Find Asian range (0-6 UTC)
+        asian_candles = df[
+            (df.index.to_series().dt.date == current_date) &
+            (df.index.to_series().dt.hour >= 0) &
+            (df.index.to_series().dt.hour < 6)
+        ]
 
         if len(asian_candles) > 0:
-            asian_high = max(c['high'] for c in asian_candles)
-            asian_low = min(c['low'] for c in asian_candles)
+            asian_high = asian_candles['high'].max()
+            asian_low = asian_candles['low'].min()
 
             # Check if London/NA hunted these levels
             manipulation_zones.append({
@@ -292,15 +296,20 @@ class SessionAnalyzer:
         """
         Check if price hunted a specific level.
         """
-        # Look at candles after Asian session
-        for i in range(-18, 0):
-            if i >= -len(df):
-                candle = df.iloc[i]
+        # Get current date
+        current_date = df.index[-1].date()
 
-                if direction == 'high' and candle['high'] > target_price:
-                    return True
-                elif direction == 'low' and candle['low'] < target_price:
-                    return True
+        # Look at candles after Asian session (after 6 UTC)
+        london_ny_candles = df[
+            (df.index.to_series().dt.date == current_date) &
+            (df.index.to_series().dt.hour >= 6)
+        ]
+
+        for _, candle in london_ny_candles.iterrows():
+            if direction == 'high' and candle['high'] > target_price:
+                return True
+            elif direction == 'low' and candle['low'] < target_price:
+                return True
 
         return False
 
@@ -308,14 +317,20 @@ class SessionAnalyzer:
         """
         Get the time when a level was hunted.
         """
-        for i in range(-18, 0):
-            if i >= -len(df):
-                candle = df.iloc[i]
+        # Get current date
+        current_date = df.index[-1].date()
 
-                if direction == 'high' and candle['high'] > target_price:
-                    return df.index[i]
-                elif direction == 'low' and candle['low'] < target_price:
-                    return df.index[i]
+        # Look at candles after Asian session
+        london_ny_candles = df[
+            (df.index.to_series().dt.date == current_date) &
+            (df.index.to_series().dt.hour >= 6)
+        ]
+
+        for timestamp, candle in london_ny_candles.iterrows():
+            if direction == 'high' and candle['high'] > target_price:
+                return timestamp
+            elif direction == 'low' and candle['low'] < target_price:
+                return timestamp
 
         return None
 
@@ -346,7 +361,7 @@ class SessionAnalyzer:
         session_low = candles['low'].min()
         attempts = 0
 
-        for candle in candles:
+        for _, candle in candles.iterrows():
             # Check for break attempts
             if (candle['high'] > session_high * 0.9995 or
                 candle['low'] < session_low * 1.0005):
