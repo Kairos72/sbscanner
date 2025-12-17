@@ -56,27 +56,40 @@ class DMRLevelCalculator:
 
         # Get previous day's data
         today = df.index[-1].date()
-        prev_day = None
+        prev_day_date = None
 
+        # Find the previous trading day
         for i in range(len(df) - 2, -1, -1):
             if df.index[i].date() < today:
-                prev_day = df.iloc[i]
+                prev_day_date = df.index[i].date()
                 break
 
-        if prev_day is None:
+        if prev_day_date is None:
             return {'high': None, 'low': None}
+
+        # Get all candles for the previous day
+        prev_day_candles = df[df.index.date == prev_day_date]
+
+        if len(prev_day_candles) == 0:
+            return {'high': None, 'low': None}
+
+        # Get the actual high and low of the entire day
+        prev_high = prev_day_candles['high'].max()
+        prev_low = prev_day_candles['low'].min()
+        high_time = prev_day_candles['high'].idxmax()
+        low_time = prev_day_candles['low'].idxmin()
 
         return {
             'high': {
-                'price': prev_day['high'],
-                'time': prev_day.name,
+                'price': prev_high,
+                'time': high_time,
                 'strength': 'MAXIMUM',
                 'type': 'PDH',
                 'distance_pips': None
             },
             'low': {
-                'price': prev_day['low'],
-                'time': prev_day.name,
+                'price': prev_low,
+                'time': low_time,
                 'strength': 'MAXIMUM',
                 'type': 'PDL',
                 'distance_pips': None

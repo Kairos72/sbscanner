@@ -5,7 +5,7 @@ ACB Enhanced Scanner - Comprehensive Test Suite
 This test suite validates all implemented phases of the ACB Enhanced Scanner:
 Phase 1: Core ACB Detection ✓
 Phase 2: Enhanced FRD/FGD with ACB Context ✓
-Phase 3-8: Future implementations
+Phase 3: Smart Money Manipulation Analysis ✓
 
 Key Features Tested:
 - ACB Level Detection and Validation
@@ -14,6 +14,8 @@ Key Features Tested:
 - Enhanced FRD/FGD Pattern Recognition
 - Asian Range Sweep Entry Strategy
 - Signal Validation and Risk Management
+- Liquidity Hunt Detection (Phase 3)
+- Market Phase Identification (Phase 3)
 
 Usage:
   python test_phase1_complete.py
@@ -39,7 +41,12 @@ from acb import (
     SignalValidator,
     SignalType,
     SignalGrade,
-    ValidationLevel
+    ValidationLevel,
+    # Phase 3 - Smart Money Manipulation Analysis
+    LiquidityHuntDetector,
+    MarketPhaseIdentifier,
+    LiquidityHuntType,
+    MarketPhase
 )
 
 
@@ -516,6 +523,147 @@ def test_multiple_symbols(test_config: Optional[Dict] = None, results: Optional[
     return success_count == len(symbols)
 
 
+def test_liquidity_hunt_detector(test_config: Optional[Dict] = None, results: Optional[TestResults] = None) -> bool:
+    """Test Liquidity Hunt Detector (Phase 3)."""
+    if results:
+        results.start_test("Liquidity Hunt Detector")
+
+    symbol = test_config['symbols'][0] if test_config else 'NZDUSD'
+    detector = LiquidityHuntDetector()
+
+    # Test liquidity hunt detection
+    try:
+        start_time = time.time()
+
+        # Get data
+        h1_rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, 200)
+        df_h1 = pd.DataFrame(h1_rates)
+        df_h1['time'] = pd.to_datetime(h1_rates['time'], unit='s')
+        df_h1.set_index('time', inplace=True)
+
+        # Calculate DMR and ACB levels for context
+        dmr_calc = DMRLevelCalculator()
+        dmr_levels = dmr_calc.calculate_all_dmr_levels(df_h1)
+
+        acb_det = ACBDetector()
+        acb_levels = acb_det.identify_acb_levels(df_h1)
+
+        # Detect liquidity hunts
+        hunt_analysis = detector.detect_liquidity_hunts(df_h1, dmr_levels, acb_levels)
+
+        performance = time.time() - start_time
+
+        if results:
+            results.record_result(
+                "Liquidity Hunt Detection",
+                True,
+                f"Found {hunt_analysis['total_hunts']} hunts, {hunt_analysis['hunt_frequency']:.1f}% frequency",
+                performance
+            )
+
+    except Exception as e:
+        if results:
+            results.record_result("Liquidity Hunt Detection", False, f"Error: {str(e)}")
+        return False
+
+    return True
+
+
+def test_market_phase_identifier(test_config: Optional[Dict] = None, results: Optional[TestResults] = None) -> bool:
+    """Test Market Phase Identifier (Phase 3)."""
+    if results:
+        results.start_test("Market Phase Identifier")
+
+    symbol = test_config['symbols'][0] if test_config else 'NZDUSD'
+    identifier = MarketPhaseIdentifier()
+
+    # Test market phase identification
+    try:
+        start_time = time.time()
+
+        # Get data
+        h1_rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, 200)
+        df_h1 = pd.DataFrame(h1_rates)
+        df_h1['time'] = pd.to_datetime(h1_rates['time'], unit='s')
+        df_h1.set_index('time', inplace=True)
+
+        # Calculate levels for context
+        dmr_calc = DMRLevelCalculator()
+        dmr_levels = dmr_calc.calculate_all_dmr_levels(df_h1)
+
+        acb_det = ACBDetector()
+        acb_levels = acb_det.identify_acb_levels(df_h1)
+
+        # Identify market phase
+        phase_analysis = identifier.identify_market_phase(df_h1, dmr_levels, acb_levels)
+
+        performance = time.time() - start_time
+
+        if results:
+            phase_name = phase_analysis['current_phase'].value
+            confidence = phase_analysis['confidence'].value
+            results.record_result(
+                "Market Phase Identification",
+                True,
+                f"Phase: {phase_name}, Confidence: {confidence}",
+                performance
+            )
+
+    except Exception as e:
+        if results:
+            results.record_result("Market Phase Identification", False, f"Error: {str(e)}")
+        return False
+
+    return True
+
+
+def test_phase3_integration(test_config: Optional[Dict] = None, results: Optional[TestResults] = None) -> bool:
+    """Test Phase 3 integration with existing modules."""
+    if results:
+        results.start_test("Phase 3 Integration")
+
+    symbol = test_config['symbols'][0] if test_config else 'NZDUSD'
+
+    # Test full Phase 3 integration
+    try:
+        start_time = time.time()
+
+        # Initialize all modules
+        acb_det = ACBDetector()
+        dmr_calc = DMRLevelCalculator()
+        hunt_det = LiquidityHuntDetector()
+        phase_id = MarketPhaseIdentifier()
+
+        # Get data
+        h1_rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, 200)
+        df_h1 = pd.DataFrame(h1_rates)
+        df_h1['time'] = pd.to_datetime(h1_rates['time'], unit='s')
+        df_h1.set_index('time', inplace=True)
+
+        # Run all analyses
+        acb_levels = acb_det.identify_acb_levels(df_h1)
+        dmr_levels = dmr_calc.calculate_all_dmr_levels(df_h1)
+        hunt_analysis = hunt_det.detect_liquidity_hunts(df_h1, dmr_levels, acb_levels)
+        phase_analysis = phase_id.identify_market_phase(df_h1, dmr_levels, acb_levels)
+
+        performance = time.time() - start_time
+
+        if results:
+            results.record_result(
+                "Phase 3 Integration",
+                True,
+                f"All Phase 3 modules working, {hunt_analysis['total_hunts']} hunts detected",
+                performance
+            )
+
+    except Exception as e:
+        if results:
+            results.record_result("Phase 3 Integration", False, f"Error: {str(e)}")
+        return False
+
+    return True
+
+
 def run_phase1_tests(test_config: Optional[Dict] = None, results: Optional[TestResults] = None) -> int:
     """Run Phase 1 tests."""
     if results is None:
@@ -570,6 +718,30 @@ def run_phase2_tests(test_config: Optional[Dict] = None, results: Optional[TestR
     return tests_passed
 
 
+def run_phase3_tests(test_config: Optional[Dict] = None, results: Optional[TestResults] = None) -> int:
+    """Run Phase 3 tests."""
+    if results is None:
+        results = TestResults()
+
+    print("\n[PHASE 3] Smart Money Manipulation Analysis")
+    print("-" * 50)
+
+    tests_passed = 0
+    total_tests = 3
+
+    # Run Phase 3 tests
+    if test_liquidity_hunt_detector(test_config, results):
+        tests_passed += 1
+
+    if test_market_phase_identifier(test_config, results):
+        tests_passed += 1
+
+    if test_phase3_integration(test_config, results):
+        tests_passed += 1
+
+    return tests_passed
+
+
 def main():
     """Run comprehensive test suite."""
     print("ACB ENHANCED SCANNER - COMPREHENSIVE TEST SUITE")
@@ -601,17 +773,21 @@ def main():
         # Run Phase 2 tests
         phase2_passed = run_phase2_tests(test_config, results)
 
+        # Run Phase 3 tests
+        phase3_passed = run_phase3_tests(test_config, results)
+
         # Generate final report
         print(results.generate_report())
 
-        total_tests = phase1_passed + phase2_passed
-        max_tests = 8
+        total_tests = phase1_passed + phase2_passed + phase3_passed
+        max_tests = 11
 
         if total_tests == max_tests:
-            print(f"\n[SUCCESS] ALL PHASES 1-2 TESTS PASSED! ({total_tests}/{max_tests})")
+            print(f"\n[SUCCESS] ALL PHASES 1-3 TESTS PASSED! ({total_tests}/{max_tests})")
             print("[OK] Core ACB detection and enhanced FRD/FGD systems working correctly!")
             print("[OK] Asian Range Sweep strategy implemented!")
-            print("\nNext: Phase 3 - Smart Money Manipulation Analysis")
+            print("[OK] Smart Money Manipulation Analysis working!")
+            print("\nNext: Phase 4 - Enhanced Signal Generation")
         else:
             print(f"\n[PARTIAL] Some tests failed ({total_tests}/{max_tests})")
             print("[WARNING] Please review and fix before proceeding")
