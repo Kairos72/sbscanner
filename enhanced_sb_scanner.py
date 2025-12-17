@@ -122,10 +122,7 @@ class EnhancedStaceyBurkeScanner:
         # Track consecutive daily candles
         for i in range(len(analysis_df)):
             if analysis_df.iloc[i]['close'] > analysis_df.iloc[i]['open']:  # Green daily candle
-                consecutive_greens += 1
-                consecutive_reds = 0
-
-                # Check if this is FGD (after 3+ reds)
+                # Check if this is FGD (after 3+ reds) - BEFORE resetting counters!
                 if consecutive_reds >= min_consecutive:
                     daily_signals.append({
                         'type': 'FGD',
@@ -140,11 +137,13 @@ class EnhancedStaceyBurkeScanner:
                         'target': analysis_df.iloc[i-min_consecutive]['high'],  # Previous high
                         'is_completed': True  # This is a completed signal
                     })
-            else:  # Red daily candle
-                consecutive_reds += 1
-                consecutive_greens = 0
 
-                # Check if this is FRD (after 3+ greens)
+                # NOW reset counters after checking
+                consecutive_greens += 1
+                consecutive_reds = 0
+
+            else:  # Red daily candle
+                # Check if this is FRD (after 3+ greens) - BEFORE resetting counters!
                 if consecutive_greens >= min_consecutive:
                     daily_signals.append({
                         'type': 'FRD',
@@ -159,6 +158,10 @@ class EnhancedStaceyBurkeScanner:
                         'target': analysis_df.iloc[i-min_consecutive]['low'],  # Previous low
                         'is_completed': True  # This is a completed signal
                     })
+
+                # NOW reset counters after checking
+                consecutive_reds += 1
+                consecutive_greens = 0
 
         return daily_signals
 
