@@ -1,18 +1,22 @@
 # Stacey Burke Complete Trading Strategy Guide
 
-Based on comprehensive research of Stacey Burke's trading methodology, this document compiles all key concepts and rules for implementing the strategy effectively.
+Based on comprehensive research and Stacey Burke's official ACB Trading Manual, this document compiles all key concepts and rules for implementing the strategy effectively.
+
+**Core Philosophy**: ACB (Ain't Coming Back) - Understanding where smart money positions that won't be tested again.
 
 ## Table of Contents
 1. [Core Trading Philosophy](#1-core-trading-philosophy)
 2. [Market Structure Theory](#2-market-structure-theory)
-3. [Key Patterns & Setups](#3-key-patterns--setups)
-4. [Entry & Exit Rules](#4-entry--exit-rules)
-5. [Risk Management](#5-risk-management)
-6. [Timeframe Analysis](#6-timeframe-analysis)
-7. [Implementation Strategy](#7-implementation-strategy)
-8. [Advanced Concepts](#8-advanced-concepts)
-9. [Trading Psychology](#9-trading-psychology)
-10. [Script Improvement Recommendations](#10-script-improvement-recommendations)
+3. [The ACB System](#3-the-acb-system)
+4. [Key Patterns & Setups](#4-key-patterns--setups)
+5. [Entry & Exit Rules](#5-entry--exit-rules)
+6. [Risk Management](#6-risk-management)
+7. [Timeframe Analysis](#7-timeframe-analysis)
+8. [Weekly Template](#8-weekly-template)
+9. [Implementation Strategy](#9-implementation-strategy)
+10. [Advanced Concepts](#10-advanced-concepts)
+11. [Trading Psychology](#11-trading-psychology)
+12. [Script Improvement Recommendations](#12-script-improvement-recommendations)
 
 ## 1. Core Trading Philosophy
 
@@ -62,35 +66,130 @@ Based on comprehensive research of Stacey Burke's trading methodology, this docu
 3. H4 (Entry zones)
 4. H1 (Triggers)
 
-## 3. Key Patterns & Setups
+## 3. The ACB System
+
+### ACB = AIN'T COMING BACK
+
+**Definition**: Areas where smart money positions that won't be tested again.
+
+### The Three Essential Elements
+
+1. **DAILY MARKET CYCLE (D-M-C)**
+   - The natural rhythm of market manipulation
+   - Smart money creates cycles to trap retail
+   - 3-day cycle is the foundation
+
+2. **DAILY MARKET ROTATION (D-M-R)**
+   - Where markets rotate back to after manipulation
+   - These become ACB levels when broken
+   - Key reference points for entries
+
+3. **DAILY MARKET ROTATION LEVEL (D-M-R-L)**
+   - Specific price levels for rotation
+   - Used for stop placement and targets
+   - Areas of liquidity
+
+### Core ACB Concepts
+
+**MSMM (Market Structure & Market Manipulation)**:
+- Markets only do 3 things: Up, Down, Sideways
+- Each action has 2 components: Push and rotation
+- Time is crucial for understanding manipulation
+
+**Targeted Liquidity**:
+- 3-day liquidity targets
+- Stop hunts at key levels
+- Inducement patterns to trap retail
+
+**Time-Price Relationship**:
+- 60/40 rule: 60% price, 40% time
+- Markets manipulate through time
+- Session analysis critical
+
+## 4. Key Patterns & Setups
 
 ### Pattern Definitions:
 
-#### 1. FRD - First Red Day
-- **Definition**: First red candle after consecutive green candles
-- **Signal**: Potential bearish reversal
-- **Context**: After 3+ green candles (H1) or daily uptrend
+#### 1. FRD - First Red Day (A+ vs A Setups)
 
-**Rules:**
-- Red candle closes below open
-- Previous candle(s) were green
-- Minimum 3 consecutive greens before FRD
-- Entry: Above FRD candle's high
-- Stop: Above FRD candle's high + buffer
+**A+ Setup (3DL + FRD):**
+- **Definition**: First red candle after 3+ consecutive green candles
+- **Signal**: Maximum exhaustion, high probability reversal
+- **Context**: After 3 consecutive green daily candles (3 Days of Longs)
+- **Pattern**: Green, Green, Green, **RED (Trigger)**
+- **Action**: Next day, look for shorts above FRD high
+- **Quality**: Highest probability, but less frequent
 
-#### 2. FGD - First Green Day
-- **Definition**: First green candle after consecutive red candles
-- **Signal**: Potential bullish reversal
-- **Context**: After 3+ red candles (H1) or daily downtrend
+**A Setup (2DL + FRD):**
+- **Definition**: Red candle after 2 consecutive green days
+- **Signal**: Early reversal signal, more frequent
+- **Pattern**: Green, Green, **RED (Trigger)**
+- **Action**: Next day, look for shorts above trigger high
+- **Quality**: Good probability, more opportunities
 
-**Rules:**
-- Green candle closes above open
-- Previous candle(s) were red
-- Minimum 3 consecutive reds before FGD
-- Entry: Below FGD candle's low
-- Stop: Below FGD candle's low - buffer
+#### 2. FGD - First Green Day (A+ vs A Setups)
 
-#### 3. Inside Day (ID)
+**A+ Setup (3DS + FGD):**
+- **Definition**: First green candle after 3+ consecutive red candles
+- **Signal**: Maximum oversold, high probability reversal
+- **Context**: After 3 consecutive red daily candles (3 Days of Shorts)
+- **Pattern**: Red, Red, Red, **GREEN (Trigger)**
+- **Action**: Next day, look for longs below FGD low
+- **Quality**: Highest probability, but less frequent
+
+**A Setup (2DS + FGD):**
+- **Definition**: Green candle after 2 consecutive red days
+- **Signal**: Early reversal signal, more frequent
+- **Pattern**: Red, Red, **GREEN (Trigger)**
+- **Action**: Next day, look for longs below trigger low
+- **Quality**: Good probability, more opportunities
+
+#### Setup Grading System
+
+**A+ Setups (3-Day Count):**
+- Higher win rate
+- Stronger momentum buildup
+- More trapped retail traders
+- Better risk/reward ratios
+- Wait for these in strong trends
+
+**A Setups (2-Day Count):**
+- More frequent occurrences
+- Earlier entries
+- Faster markets
+- Good for active trading
+- Take these in ranging/volatile markets
+
+#### 4. Pump & Dump Patterns
+
+**Five Main P&D Setups:**
+
+1. **Equilibrium P&D**
+   - Price pushes to DMR level
+   - Rotation and reversal
+   - High probability setup
+
+2. **M-Top/W-Bottom P&D**
+   - M-formation for tops
+   - W-formation for bottoms
+   - Classic reversal patterns
+
+3. **Lower Range P&D**
+   - Extreme sell-off
+   - Exhaustion pattern
+   - Violent reversal potential
+
+4. **Entry Phase P&D**
+   - Clever Head & Shoulders
+   - Running trend continuation
+   - Equilibrium breakouts
+
+5. **Coil/Spring P&D**
+   - Compression phase
+   - Energy building
+   - Explosive breakout
+
+#### 5. Inside Day (ID)
 - **Definition**: Candle within previous day's range
 - **Signal**: Consolidation before breakout
 - **Context**: Range-bound market
@@ -260,19 +359,129 @@ Based on comprehensive research of Stacey Burke's trading methodology, this docu
 - Take profits
 - Prepare for close
 
+## 8. Weekly Template (Monday-Wednesday Structure)
+
+### The Core Weekly Pattern
+
+Based on ACB methodology, the week has a specific structure:
+
+**Monday-Tuesday: Frontside (Range Building)**
+- Establish weekly boundaries
+- Accumulation phase for smart money
+- Asian session: Range definition
+- London session: Initial tests
+
+**Wednesday: The Pivot (Structure Break)**
+- Peak formation or reversal point
+- Market maker manipulation peak
+- High volatility and volume
+- Transition point
+
+**Thursday-Friday: Backside (New Cycle)**
+- New trend development
+- Distribution from smart money
+- Completion of weekly structure
+
+### Session Analysis (Critical for ACB)
+
+**Asian Session (Range Building)**
+- Establishes daily range
+- Smart money positioning
+- Low volatility, accumulation
+
+**London Session (Manipulation)**
+- Breakout of Asian range
+- Inducement patterns
+- Stop hunting activity
+- False breakouts common
+
+**New York Session (Confirmation)**
+- Real direction revealed
+- Smart money profit-taking
+- Trend continuation or reversal
+- Volume confirmation
+
+### Daily Market Cycle Alignment
+
+**Daily Market Cycle Phases:**
+1. **Establishment** (Asian)
+2. **Manipulation** (London)
+3. **Confirmation** (NY)
+4. **Distribution** (Late NY)
+
+**How Weekly & Daily Cycles Interact:**
+- Monday-Wednesday: Align with 3-day daily cycles
+- Wednesday is both weekly and daily pivot
+- Thursday starts new cycles
+- Friday completes patterns
+
+### ACB Weekly Strategy
+
+**Identify Weekly Structure:**
+1. Monday/Tuesday: Mark weekly range
+2. Wednesday: Watch for break/rejection
+3. Thursday: Trade new direction
+4. Friday: Manage positions
+
+**Key ACB Levels:**
+- Weekly high/low become DMR levels
+- Break of weekly ranges = potential ACB
+- 3-day targets align with weekly structure
+
+## 9. Implementation Strategy
+
+### Procedural Trading Steps (ACB Method)
+
+1. **Identify Current Market Phase**
+   - Determine weekly structure position
+   - Identify daily market cycle stage
+   - Note session-specific behavior
+
+2. **Select Appropriate Setup**
+   - Match setup to market conditions
+   - Prioritize 5-Star setups when available
+   - Consider FRD/FGD A+ vs A grading
+
+3. **Execute Plan**
+   - Enter at ACB levels when triggered
+   - Place stops outside manipulation zones
+   - Set targets at DMR levels
+
+4. **Trade Management**
+   - Scale out at 50% of target
+   - Trail stops after 1:1 RR
+   - Full exit at reversal signs
+
+### Daily Trading Routine
+
+**Asian Session (00:00-06:00 UTC)**
+- Mark daily range boundaries
+- Identify smart money positioning
+- Plan for London breakout
+
+**London Session (06:00-14:00 UTC)**
+- Watch for breakouts/breakdowns
+- Identify manipulation patterns
+- Execute planned entries
+
+**New York Session (13:00-22:00 UTC)**
+- Confirm London moves
+- Manage open positions
+- Take partial/full profits
+
 ### Weekly Routine:
 
 **Sunday:**
-- Review previous week
-- Update weekly levels
-- Plan week ahead
+- Review previous week's ACB levels
+- Update weekly structure
+- Plan week ahead with weekly template
 
 **Friday:**
-- Close all positions
-- Review trades
-- Prepare weekly summary
+- Close all positions by week's end
+- Review completed ACB setups
+- Prepare for next week's template
 
-## 8. Advanced Concepts
+## 10. Advanced Concepts
 
 ### Advanced Patterns:
 
@@ -304,7 +513,7 @@ Based on comprehensive research of Stacey Burke's trading methodology, this docu
 - False breakouts
 - Inducement
 
-## 9. Trading Psychology
+## 11. Trading Psychology
 
 ### Psychological Rules:
 
@@ -335,7 +544,7 @@ Based on comprehensive research of Stacey Burke's trading methodology, this docu
 - Revenge trading
 - Not waiting for confirmation
 
-## 10. Script Improvement Recommendations
+## 12. Script Improvement Recommendations
 
 ### For Script Enhancement:
 
@@ -344,30 +553,41 @@ Based on comprehensive research of Stacey Burke's trading methodology, this docu
    - 3DL/3DS identification
    - Weekly level breaks
    - Consecutive signal analysis
+   - **NEW**: ACB level detection
+   - **NEW**: Pump & Dump pattern recognition
+   - **NEW**: Coil/Spring compression detection
 
 **2. Filters:**
    - Higher timeframe alignment
    - Volatility filter
    - Session filter
    - Spread filter
+   - **NEW**: Smart money manipulation filter
+   - **NEW**: DMR level proximity filter
 
 **3. Alerts:**
    - FRD/FGD alerts
    - Level break alerts
    - Target achieved alerts
    - Stop loss alerts
+   - **NEW**: ACB level breach alerts
+   - **NEW**: 5-Star setup notifications
 
 **4. Visualization:**
    - Mark key levels
    - Show entry zones
    - Display risk/reward
    - Pattern history
+   - **NEW**: ACB/DMR level markers
+   - **NEW**: Pump & Dump pattern visualization
+   - **NEW**: Session-specific coloring
 
 **5. Automation:**
    - Auto entry options
    - Auto stop placement
    - Auto partial exits
    - Trailing stop logic
+   - **NEW**: Session-aware entry automation
 
 ### Code Improvements:
 
@@ -408,38 +628,50 @@ class AdvancedStaceyBurkeScanner(StaceyBurkeMT5Scanner):
 
 ## Conclusion
 
-This comprehensive guide provides all the essential elements of Stacey Burke's trading strategy. The key is consistency, discipline, and proper risk management while following the rules exactly.
+This comprehensive guide combines Stacey Burke's original FRD/FGD methodology with her advanced ACB (Ain't Coming Back) system. The integration provides a complete understanding of market structure, manipulation, and high-probability trading setups.
+
+### Core System Integration:
+1. **ACB Foundation**: Understanding smart money manipulation and MSMM
+   - Daily Market Cycle (D-M-C)
+   - Daily Market Rotation (D-M-R)
+   - Daily Market Rotation Levels (D-M-R-L)
+
+2. **FRD/FGD Patterns**: The primary signals
+   - A+ Setups (3-day consecutive): Highest probability
+   - A Setups (2-day consecutive): More frequent opportunities
+
+3. **Pump & Dump Patterns**: Context for market manipulation
+   - 5 main P&D variations
+   - Equilibrium, M-Top/W-Bottom, Lower Range, Entry Phase, Coil/Spring
+
+4. **Weekly Template**: Structural framework
+   - Monday-Tuesday: Frontside (range building)
+   - Wednesday: Pivot (structure break)
+   - Thursday-Friday: Backside (new cycle)
+
+5. **Session Analysis**: Timing precision
+   - Asian: Range establishment
+   - London: Manipulation phase
+   - New York: Confirmation and distribution
 
 ### Quick Reference:
-1. **Core Philosophy**: Market only does 3 things
-   - Breakout and Trend
-   - Breakout and Reverse
-   - Trading Range
+**Trading Process:**
+1. Identify market phase (weekly/daily)
+2. Select appropriate setup (prioritize 5-Star)
+3. Execute at ACB/DMR levels
+4. Manage with scaling and trailing stops
 
-2. **Key Patterns**:
-   - FRD (First Red Day): Red after 3+ greens
-   - FGD (First Green Day): Green after 3+ reds
-   - Inside Day (ID): Consolidation pattern
-   - 3DL (Three Days of Longs): Overextended longs
-   - 3DS (Three Days of Shorts): Overextended shorts
+**Key Levels to Mark:**
+- Previous day high/low
+- Weekly high/low
+- DMR levels
+- ACB breakout points
 
-3. **Entry Rules**:
-   - FRD: Short above red candle high
-   - FGD: Long below green candle low
-   - Inside Day: Breakout of range
+**High-Probability Setups:**
+1. Daily Equilibrium P&D
+2. Inside Day B/L
+3. Daily M-Top/W-Bottom P&D
+4. 3-Day Market Cycle (FRD/FGD)
+5. Coil/Spring compression
 
-4. **Risk Management**:
-   - 1% risk per trade
-   - 1:2 minimum RR ratio
-   - Stop outside signal candle
-
-5. **Timeframes**:
-   - Weekly: Trend direction
-   - Daily: Structure and signals
-   - H1: Triggers and entries
-
-6. **Philosophy**:
-   - Markets operate in 3-day cycles
-   - Identify trapped traders
-   - Trade with path of least resistance
-   - Higher timeframes control lower timeframes
+**Remember**: The market is designed to transfer wealth from impatient traders to patient traders. Wait for A+ setups, execute with precision, and let the structure work in your favor.
