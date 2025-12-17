@@ -20,6 +20,7 @@ from .patterns.enhanced_frd_fgd import AsianRangeEntryDetector
 from .patterns.signal_validator import SignalValidator, ValidationLevel
 from .manipulation.liquidity_hunt_detector import LiquidityHuntDetector, LiquidityHuntType, HuntStrength
 from .manipulation.market_phase_identifier import MarketPhaseIdentifier, MarketPhase, PhaseConfidence
+from .management.target_calculator import DMRTargetCalculator, TargetType, TargetPriority
 
 __all__ = [
     'ACBDetector',
@@ -37,5 +38,9 @@ __all__ = [
     'HuntStrength',
     'MarketPhaseIdentifier',
     'MarketPhase',
-    'PhaseConfidence'
+    'PhaseConfidence',
+    # Phase 5 - Trade Management
+    'DMRTargetCalculator',
+    'TargetType',
+    'TargetPriority'
 ]
