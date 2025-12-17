@@ -1,0 +1,179 @@
+ENHANCED STACEY BURKE SCANNER RESULTS
+Generated: 2025-12-17 13:38:58
+============================================================
+
+EURUSD.pro
+------------------------------
+Current Price: 1.17282
+
+DAILY ANALYSIS:
+  Trend: BEARISH
+  3DL/3DS Patterns:
+    - 3DL (3 days)
+    - 3DS (3 days)
+    - 3DS (4 days)
+    - 3DS (5 days)
+    - 3DS (6 days)
+    - 3DL (3 days)
+    - 3DL (4 days)
+    - 3DL (5 days)
+    - 3DL (6 days)
+    - 3DL (7 days)
+    - 3DL (8 days)
+
+H1 ANALYSIS:
+  24H Trend: BEARISH
+
+RECOMMENDATIONS:
+  - CAUTION_BULLISH: 8 consecutive green days - overbought, watch for reversal
+
+============================================================
+
+GBPUSD.pro
+------------------------------
+Current Price: 1.33873
+
+DAILY ANALYSIS:
+  Trend: BEARISH
+  3DL/3DS Patterns:
+    - 3DL (3 days)
+    - 3DL (3 days)
+    - 3DL (4 days)
+    - 3DL (5 days)
+    - 3DL (6 days)
+    - 3DL (7 days)
+
+H1 ANALYSIS:
+  24H Trend: BULLISH
+
+RECOMMENDATIONS:
+  - CAUTION_BULLISH: 7 consecutive green days - overbought, watch for reversal
+
+============================================================
+
+AUDUSD.pro
+------------------------------
+Current Price: 0.66176
+
+DAILY ANALYSIS:
+  Trend: BEARISH
+  3DL/3DS Patterns:
+    - 3DL (3 days)
+    - 3DL (4 days)
+    - 3DL (5 days)
+    - 3DL (6 days)
+    - 3DL (7 days)
+    - 3DL (8 days)
+    - 3DL (9 days)
+    - 3DL (10 days)
+    - 3DL (11 days)
+    - 3DS (3 days)
+    - 3DS (4 days)
+    - 3DS (5 days)
+
+H1 ANALYSIS:
+  24H Trend: BEARISH
+
+RECOMMENDATIONS:
+  - CAUTION_BEARISH: 5 consecutive red days - oversold, watch for reversal
+
+============================================================
+
+USDJPY.pro
+------------------------------
+Current Price: 155.12400
+
+DAILY ANALYSIS:
+  Trend: BULLISH
+  3DL/3DS Patterns:
+    - 3DL (3 days)
+    - 3DL (4 days)
+    - 3DL (3 days)
+    - 3DL (4 days)
+    - 3DS (3 days)
+    - 3DL (3 days)
+
+H1 ANALYSIS:
+  24H Trend: BULLISH
+
+RECOMMENDATIONS:
+  - CAUTION_BULLISH: 3 consecutive green days - overbought, watch for reversal
+
+============================================================
+
+NZDUSD.pro
+------------------------------
+Current Price: 0.57757
+
+DAILY ANALYSIS:
+  Trend: BEARISH
+  3DL/3DS Patterns:
+    - 3DL (3 days)
+    - 3DS (3 days)
+    - 3DS (4 days)
+    - 3DL (3 days)
+    - 3DL (4 days)
+    - 3DL (5 days)
+    - 3DL (6 days)
+    - 3DL (7 days)
+    - 3DL (8 days)
+    - 3DL (9 days)
+    - 3DL (3 days)
+    - 3DL (4 days)
+    - 3DS (3 days)
+
+H1 ANALYSIS:
+  24H Trend: BEARISH
+
+RECOMMENDATIONS:
+  - CAUTION_BEARISH: 3 consecutive red days - oversold, watch for reversal
+
+============================================================
+
+USDCAD.pro
+------------------------------
+Current Price: 1.37759
+
+DAILY ANALYSIS:
+  Trend: BULLISH
+  3DL/3DS Patterns:
+    - 3DL (3 days)
+    - 3DL (4 days)
+    - 3DS (3 days)
+    - 3DS (4 days)
+    - 3DS (3 days)
+
+H1 ANALYSIS:
+  24H Trend: BULLISH
+
+RECOMMENDATIONS:
+  - CAUTION_BEARISH: 3 consecutive red days - oversold, watch for reversal
+
+============================================================
+
+USDCHF.pro
+------------------------------
+Current Price: 0.79625
+
+DAILY ANALYSIS:
+  Trend: BULLISH
+  3DL/3DS Patterns:
+    - 3DS (3 days)
+    - 3DL (3 days)
+    - 3DL (4 days)
+    - 3DL (5 days)
+    - 3DL (6 days)
+    - 3DL (7 days)
+    - 3DL (3 days)
+    - 3DS (3 days)
+    - 3DL (3 days)
+    - 3DL (4 days)
+
+H1 ANALYSIS:
+  24H Trend: BEARISH
+
+RECOMMENDATIONS:
+  - CAUTION_BULLISH: 4 consecutive green days - overbought, watch for reversal
+
+============================================================
+
