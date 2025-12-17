@@ -26,14 +26,15 @@ class EnhancedStaceyBurkeScanner:
     """
 
     def __init__(self):
-        self.account = 2428164
-        self.password = "3b6%StTrQj"
-        self.server = "ACGMarkets-Main"
+        # FTMO Demo account
+        self.account = 1520923737
+        self.password = ""
+        self.server = "FTMO-Demo2"
 
-        # Major forex pairs
+        # Major forex pairs (without .pro suffix for FTMO)
         self.major_pairs = [
-            "EURUSD.pro", "GBPUSD.pro", "AUDUSD.pro",
-            "USDJPY.pro", "NZDUSD.pro", "USDCAD.pro", "USDCHF.pro"
+            "EURUSD", "GBPUSD", "AUDUSD",
+            "USDJPY", "NZDUSD", "USDCAD", "USDCHF"
         ]
 
         # Store analysis results
@@ -336,50 +337,43 @@ class EnhancedStaceyBurkeScanner:
         daily_signals = analysis.get('daily_analysis', {}).get('frd_fgd_signals', [])
         daily_3dl_3ds = analysis.get('daily_analysis', {}).get('three_day_patterns', [])
 
-        # PRIORITY 1: Check for recent DAILY FRD/FGD signals
+        # PRIORITY 1: Check for recent DAILY FRD/FGD signals (trigger days)
         if daily_signals:
             latest_signal = daily_signals[-1]
             signal_date = latest_signal['time']
-
-            # Check if signal is from this week (still valid)
             days_since_signal = (datetime.now() - signal_date).days
 
-            if days_since_signal <= 7:  # Signal still valid this week
+            # If signal was yesterday (1 day ago), TODAY is the entry day
+            if days_since_signal == 1:
                 if latest_signal['type'] == 'FRD':
-                    if current_price > latest_signal['entry_zone']:
-                        recommendations.append({
-                            'type': 'SHORT_ENTRY',
-                            'reason': f"DAILY FRD activated - price above {latest_signal['entry_zone']:.5f}",
-                            'entry': current_price,
-                            'stop': latest_signal['stop_level'],
-                            'target': latest_signal['target'],
-                            'confidence': 'HIGH'
-                        })
-                    else:
-                        recommendations.append({
-                            'type': 'WATCH_SHORT',
-                            'reason': f"DAILY FRD waiting - price needs above {latest_signal['entry_zone']:.5f}",
-                            'entry_zone': latest_signal['entry_zone'],
-                            'confidence': 'MEDIUM'
-                        })
+                    recommendations.append({
+                        'type': 'LOOK_FOR_SHORTS',
+                        'reason': f"FRD trigger yesterday ({signal_date.strftime('%m-%d')}) - TODAY look for short setups",
+                        'trigger_date': signal_date.strftime('%Y-%m-%d'),
+                        'trigger_price': latest_signal['price'],
+                        'confidence': 'HIGH',
+                        'action': 'Today is SHORT entry day after FRD trigger'
+                    })
 
                 elif latest_signal['type'] == 'FGD':
-                    if current_price < latest_signal['entry_zone']:
-                        recommendations.append({
-                            'type': 'LONG_ENTRY',
-                            'reason': f"DAILY FGD activated - price below {latest_signal['entry_zone']:.5f}",
-                            'entry': current_price,
-                            'stop': latest_signal['stop_level'],
-                            'target': latest_signal['target'],
-                            'confidence': 'HIGH'
-                        })
-                    else:
-                        recommendations.append({
-                            'type': 'WATCH_LONG',
-                            'reason': f"DAILY FGD waiting - price needs below {latest_signal['entry_zone']:.5f}",
-                            'entry_zone': latest_signal['entry_zone'],
-                            'confidence': 'MEDIUM'
-                        })
+                    recommendations.append({
+                        'type': 'LOOK_FOR_LONGS',
+                        'reason': f"FGD trigger yesterday ({signal_date.strftime('%m-%d')}) - TODAY look for long setups",
+                        'trigger_date': signal_date.strftime('%Y-%m-%d'),
+                        'trigger_price': latest_signal['price'],
+                        'confidence': 'HIGH',
+                        'action': 'Today is LONG entry day after FGD trigger',
+                        'entry_zone': f'Above {latest_signal["low"]:.5f} (pullback) or break of today\'s high'
+                    })
+
+            # If signal was 2-7 days ago, the entry window may have passed
+            elif days_since_signal <= 7:
+                recommendations.append({
+                    'type': 'SIGNAL_EXPIRED',
+                    'reason': f"{latest_signal['type']} on {signal_date.strftime('%m-%d')} was {days_since_signal} days ago - entry window passed",
+                    'days_old': days_since_signal,
+                    'confidence': 'LOW'
+                })
 
         # PRIORITY 2: Check for 3DL/3DS patterns
         if daily_3dl_3ds:
@@ -456,7 +450,7 @@ class EnhancedStaceyBurkeScanner:
         print("SUMMARY TABLE")
         print("=" * 60)
 
-        print(f"{'Pair':<12} {'Price':<10} {'Daily':<8} {'Daily Streak':<12} {'Recommendation':<20}")
+        print(f"{'Pair':<12} {'Price':<10} {'Daily':<8} {'Daily Streak':<12} {'Today Action':<20}")
         print("-" * 60)
 
         for symbol, result in all_results.items():
@@ -468,20 +462,17 @@ class EnhancedStaceyBurkeScanner:
             reds = daily.get('consecutive_reds', 0)
             streak = f"{greens}G/{reds}R"
 
-            # Get latest daily signal
-            daily_signal = 'NONE'
-            daily_signals = daily.get('frd_fgd_signals', [])
-            if daily_signals:
-                latest = daily_signals[-1]
-                days_old = (datetime.now() - latest['time']).days
-                if days_old <= 7:
-                    daily_signal = f"{latest['type']}({days_old}d)"
-
             # Get main recommendation
             main_rec = 'HOLD'
             for rec in result.get('recommendations', []):
-                if 'ENTRY' in rec['type'] or 'CAUTION' in rec['type']:
-                    main_rec = rec['type']
+                if rec['type'] in ['LOOK_FOR_LONGS', 'LOOK_FOR_SHORTS']:
+                    main_rec = 'LOOK FOR TRADE'
+                    break
+                elif 'CAUTION' in rec['type']:
+                    main_rec = 'CAUTION'
+                    break
+                elif rec['type'] == 'SIGNAL_EXPIRED':
+                    main_rec = 'EXPIRED'
                     break
 
             print(f"{symbol:<12} {result['current_price']:<10.5f} {daily_trend:<8} {streak:<12} {main_rec:<20}")
