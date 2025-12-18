@@ -6,6 +6,7 @@ This test suite validates all implemented phases of the ACB Enhanced Scanner:
 Phase 1: Core ACB Detection ✓
 Phase 2: Enhanced FRD/FGD with ACB Context ✓
 Phase 3: Smart Money Manipulation Analysis ✓
+Phase 4: Enhanced Signal Generation ✓
 
 Key Features Tested:
 - ACB Level Detection and Validation
@@ -16,6 +17,8 @@ Key Features Tested:
 - Signal Validation and Risk Management
 - Liquidity Hunt Detection (Phase 3)
 - Market Phase Identification (Phase 3)
+- ACB-Aware Signal Generator (Phase 4)
+- 5-Star Setup Prioritizer (Phase 4)
 
 Usage:
   python test_phase1_complete.py
@@ -46,7 +49,17 @@ from acb import (
     LiquidityHuntDetector,
     MarketPhaseIdentifier,
     LiquidityHuntType,
-    MarketPhase
+    MarketPhase,
+    # Phase 4 - Enhanced Signal Generation
+    ACBAwareSignalGenerator,
+    SignalConfidence,
+    FiveStarSetupPrioritizer,
+    SetupType,
+    SetupRating,
+    # Phase 5 - Trade Management
+    DMRTargetCalculator,
+    TargetType,
+    TargetPriority
 )
 
 
@@ -664,6 +677,270 @@ def test_phase3_integration(test_config: Optional[Dict] = None, results: Optiona
     return True
 
 
+def test_acb_aware_signal_generator(test_config: Optional[Dict] = None, results: Optional[TestResults] = None) -> bool:
+    """Test ACB-Aware Signal Generator (Phase 4)."""
+    if results:
+        results.start_test("ACB-Aware Signal Generator")
+
+    symbol = test_config['symbols'][0] if test_config else 'NZDUSD'
+    signal_gen = ACBAwareSignalGenerator()
+
+    # Test signal generation
+    try:
+        start_time = time.time()
+
+        # Get H1 data for detailed analysis
+        h1_rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, 500)
+        if h1_rates is None or len(h1_rates) == 0:
+            if results:
+                results.record_result("Signal Generation", False, f"No data for {symbol}")
+            return False
+
+        df_h1 = pd.DataFrame(h1_rates)
+        df_h1['time'] = pd.to_datetime(h1_rates['time'], unit='s')
+        df_h1.set_index('time', inplace=True)
+
+        # Get D1 data for FRD/FGD analysis
+        d1_rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_D1, 0, 30)
+        df_d1 = pd.DataFrame(d1_rates)
+        df_d1['time'] = pd.to_datetime(d1_rates['time'], unit='s')
+        df_d1.set_index('time', inplace=True)
+
+        # Generate signals
+        signals = signal_gen.generate_signals(df_h1, df_d1, symbol)
+        performance = time.time() - start_time
+
+        if results:
+            top_signals_count = len(signals['top_signals'])
+            current_price = signals['current_price']
+            market_phase = signals['market_phase']
+
+            results.record_result(
+                "Signal Generation",
+                True,
+                f"Current: {current_price:.5f}, Phase: {market_phase}, Top signals: {top_signals_count}",
+                performance
+            )
+
+    except Exception as e:
+        if results:
+            results.record_result("Signal Generation", False, f"Error: {str(e)}")
+        return False
+
+    return True
+
+
+def test_five_star_setup_prioritizer(test_config: Optional[Dict] = None, results: Optional[TestResults] = None) -> bool:
+    """Test 5-Star Setup Prioritizer (Phase 4)."""
+    if results:
+        results.start_test("5-Star Setup Prioritizer")
+
+    symbol = test_config['symbols'][0] if test_config else 'NZDUSD'
+    prioritizer = FiveStarSetupPrioritizer()
+
+    # Test setup prioritization
+    try:
+        start_time = time.time()
+
+        # Get H1 data for detailed analysis
+        h1_rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, 500)
+        if h1_rates is None or len(h1_rates) == 0:
+            if results:
+                results.record_result("Setup Prioritization", False, f"No data for {symbol}")
+            return False
+
+        df_h1 = pd.DataFrame(h1_rates)
+        df_h1['time'] = pd.to_datetime(h1_rates['time'], unit='s')
+        df_h1.set_index('time', inplace=True)
+
+        # Get D1 data for FRD/FGD analysis
+        d1_rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_D1, 0, 30)
+        df_d1 = pd.DataFrame(d1_rates)
+        df_d1['time'] = pd.to_datetime(d1_rates['time'], unit='s')
+        df_d1.set_index('time', inplace=True)
+
+        # Prioritize setups
+        setups = prioritizer.prioritize_setups(df_h1, df_d1, symbol)
+        performance = time.time() - start_time
+
+        if results:
+            ranked_count = len(setups['ranked_setups'])
+            current_price = setups['current_price']
+            market_phase = setups['market_phase']
+
+            if setups['top_setup']:
+                top_type = setups['top_setup']['type'].value
+                top_rating = setups['top_setup']['rating']['stars'].value
+                top_details = f"Top: {top_type}, {top_rating}"
+            else:
+                top_details = "No high-probability setups"
+
+            results.record_result(
+                "Setup Prioritization",
+                True,
+                f"Current: {current_price:.5f}, Phase: {market_phase}, {top_details}",
+                performance
+            )
+
+    except Exception as e:
+        if results:
+            results.record_result("Setup Prioritization", False, f"Error: {str(e)}")
+        return False
+
+    return True
+
+
+def test_target_calculator(test_config: Optional[Dict] = None, results: Optional[TestResults] = None) -> bool:
+    """Test DMR Target Calculator (Phase 5)."""
+    if results:
+        results.start_test("DMR Target Calculator")
+
+    symbol = test_config['symbols'][0] if test_config else 'NZDUSD'
+    target_calc = DMRTargetCalculator()
+
+    # Test target calculation
+    try:
+        start_time = time.time()
+
+        # Get H1 data
+        h1_rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, 200)
+        df_h1 = pd.DataFrame(h1_rates)
+        df_h1['time'] = pd.to_datetime(h1_rates['time'], unit='s')
+        df_h1.set_index('time', inplace=True)
+
+        # Calculate DMR levels
+        dmr_calc = DMRLevelCalculator()
+        dmr_levels = dmr_calc.calculate_all_dmr_levels(df_h1)
+
+        # Test long target calculation
+        entry_price = df_h1.iloc[-1]['close']
+        direction = 'long'
+
+        targets = target_calc.calculate_targets(
+            entry_price=entry_price,
+            direction=direction,
+            dmr_levels=dmr_levels
+        )
+
+        performance = time.time() - start_time
+
+        if results:
+            target_count = len(targets['targets'])
+            if targets['primary_target']:
+                primary = targets['primary_target']
+                primary_dist = primary['distance_pips']
+                primary_rr = primary['risk_reward_ratio']
+                details = f"Targets: {target_count}, Primary: {primary_dist:.1f} pips, RR: 1:{primary_rr:.1f}"
+            else:
+                details = f"Targets: {target_count}, No primary target"
+
+            results.record_result(
+                "Target Calculation",
+                True,
+                details,
+                performance
+            )
+
+    except Exception as e:
+        if results:
+            results.record_result("Target Calculation", False, f"Error: {str(e)}")
+        return False
+
+    return True
+
+
+def test_phase4_integration(test_config: Optional[Dict] = None, results: Optional[TestResults] = None) -> bool:
+    """Test Phase 4 integration with all modules."""
+    if results:
+        results.start_test("Phase 4 Integration")
+
+    symbol = test_config['symbols'][0] if test_config else 'NZDUSD'
+
+    # Test full Phase 4 integration
+    try:
+        start_time = time.time()
+
+        # Initialize all modules
+        signal_gen = ACBAwareSignalGenerator()
+        prioritizer = FiveStarSetupPrioritizer()
+        target_calc = DMRTargetCalculator()
+
+        # Get data
+        h1_rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, 500)
+        df_h1 = pd.DataFrame(h1_rates)
+        df_h1['time'] = pd.to_datetime(h1_rates['time'], unit='s')
+        df_h1.set_index('time', inplace=True)
+
+        d1_rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_D1, 0, 30)
+        df_d1 = pd.DataFrame(d1_rates)
+        df_d1['time'] = pd.to_datetime(d1_rates['time'], unit='s')
+        df_d1.set_index('time', inplace=True)
+
+        # Run all Phase 4 analyses
+        signals = signal_gen.generate_signals(df_h1, df_d1, symbol)
+        setups = prioritizer.prioritize_setups(df_h1, df_d1, symbol)
+
+        # Calculate targets if we have a signal
+        if signals['top_signals']:
+            entry_price = df_h1.iloc[-1]['close']
+            direction = signals['top_signals'][0].get('direction', 'long')
+
+            dmr_calc = DMRLevelCalculator()
+            dmr_levels = dmr_calc.calculate_all_dmr_levels(df_h1)
+
+            targets = target_calc.calculate_targets(
+                entry_price=entry_price,
+                direction=direction,
+                dmr_levels=dmr_levels
+            )
+        else:
+            targets = {'targets': []}
+
+        performance = time.time() - start_time
+
+        if results:
+            results.record_result(
+                "Phase 4 Integration",
+                True,
+                f"All Phase 4 modules working, {len(signals['top_signals'])} signals, {len(setups['ranked_setups'])} setups",
+                performance
+            )
+
+    except Exception as e:
+        if results:
+            results.record_result("Phase 4 Integration", False, f"Error: {str(e)}")
+        return False
+
+    return True
+
+
+def run_phase4_tests(test_config: Optional[Dict] = None, results: Optional[TestResults] = None) -> int:
+    """Run Phase 4 tests."""
+    if results is None:
+        results = TestResults()
+
+    print("\n[PHASE 4] Enhanced Signal Generation")
+    print("-" * 50)
+
+    tests_passed = 0
+    total_tests = 4
+
+    # Run Phase 4 tests
+    if test_acb_aware_signal_generator(test_config, results):
+        tests_passed += 1
+
+    if test_five_star_setup_prioritizer(test_config, results):
+        tests_passed += 1
+
+    if test_target_calculator(test_config, results):
+        tests_passed += 1
+
+    if test_phase4_integration(test_config, results):
+        tests_passed += 1
+
+    return tests_passed
+
+
 def run_phase1_tests(test_config: Optional[Dict] = None, results: Optional[TestResults] = None) -> int:
     """Run Phase 1 tests."""
     if results is None:
@@ -776,18 +1053,22 @@ def main():
         # Run Phase 3 tests
         phase3_passed = run_phase3_tests(test_config, results)
 
+        # Run Phase 4 tests
+        phase4_passed = run_phase4_tests(test_config, results)
+
         # Generate final report
         print(results.generate_report())
 
-        total_tests = phase1_passed + phase2_passed + phase3_passed
-        max_tests = 11
+        total_tests = phase1_passed + phase2_passed + phase3_passed + phase4_passed
+        max_tests = 15
 
         if total_tests == max_tests:
-            print(f"\n[SUCCESS] ALL PHASES 1-3 TESTS PASSED! ({total_tests}/{max_tests})")
+            print(f"\n[SUCCESS] ALL PHASES 1-4 TESTS PASSED! ({total_tests}/{max_tests})")
             print("[OK] Core ACB detection and enhanced FRD/FGD systems working correctly!")
             print("[OK] Asian Range Sweep strategy implemented!")
             print("[OK] Smart Money Manipulation Analysis working!")
-            print("\nNext: Phase 4 - Enhanced Signal Generation")
+            print("[OK] Enhanced Signal Generation and Setup Prioritization working!")
+            print("\nNext: Phase 6 - Visualization & Alerts")
         else:
             print(f"\n[PARTIAL] Some tests failed ({total_tests}/{max_tests})")
             print("[WARNING] Please review and fix before proceeding")
