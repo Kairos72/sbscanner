@@ -38,8 +38,8 @@ def analyze_pair(pair_name):
         script_content = f.read()
 
     # Substitute the symbol
-    script_content = script_content.replace('symbol_base = "AUDUSD"', f'symbol_base = "{pair_name}"')
-    script_content = script_content.replace('run_ultimate_usdjpy_analysis', 'run_unified_master_analysis')
+    script_content = script_content.replace('symbol_base = "EURUSD"', f'symbol_base = "{pair_name}"')
+    script_content = script_content.replace('run_unified_master_analysis', 'run_unified_master_analysis')
 
     # Create temporary script
     temp_file = f"temp_{pair_name.lower()}.py"

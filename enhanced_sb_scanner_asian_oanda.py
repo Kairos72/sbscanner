@@ -3,6 +3,7 @@ ENHANCED STACEY BURKE SCANNER WITH ASIAN RANGE SWEEP - OANDA VERSION
 ==================================================================
 
 Modified to connect to OANDA MT5 broker
+Now uses proper ACB framework for accurate FGD/FRD detection
 """
 
 import MetaTrader5 as mt5
@@ -11,6 +12,10 @@ import numpy as np
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Tuple, Optional
 from oanda_symbol_mapper import get_oanda_symbol
+
+# Import proper ACB detectors for accurate pattern recognition
+from acb.patterns.frd_fgd import EnhancedFRDFGDDetector
+from acb.patterns.enhanced_frd_fgd import AsianRangeEntryDetector
 
 class EnhancedStaceyBurkeScannerWithAsianOANDA:
     """
@@ -27,7 +32,13 @@ class EnhancedStaceyBurkeScannerWithAsianOANDA:
             "USDJPY", "NZDUSD", "USDCAD", "USDCHF"
         ]
 
+        # Initialize proper ACB detectors
+        self.fgd_detector = EnhancedFRDFGDDetector()
+        self.asian_detector = AsianRangeEntryDetector()
+
         print("Enhanced Stacey Burke Scanner with Asian Sweep - OANDA Version")
+        print("=" * 70)
+        print("Now using enhanced ACB framework for accurate pattern detection")
         print("=" * 70)
 
     def connect_to_mt5(self) -> bool:
@@ -66,66 +77,49 @@ class EnhancedStaceyBurkeScannerWithAsianOANDA:
         return df
 
     def detect_daily_frd_fgd(self, df: pd.DataFrame) -> List[Dict]:
-        """Detect FRD/FGD patterns on DAILY timeframe"""
-        signals = []
-        min_consecutive = 3
+        """Detect FRD/FGD patterns using proper ACB EnhancedFRDFGDDetector"""
+        try:
+            # Use the proven ACB detector for accurate pattern recognition
+            pattern_result = self.fgd_detector.detect_enhanced_frd_fgd(
+                df, dmr_levels={}, acb_levels={}, session_analysis=None
+            )
 
-        if len(df) < min_consecutive + 1:
+            if not pattern_result.get('pattern_detected', False):
+                return []
+
+            # Convert to the expected format for the scanner
+            signals = []
+            current_time = datetime.now()
+
+            if pattern_result.get('signal_type') and pattern_result.get('trigger_day'):
+                signal_time = pattern_result['trigger_day']
+                if hasattr(signal_time, 'date'):
+                    days_ago = (current_time.date() - signal_time.date()).days
+                else:
+                    days_ago = 0
+
+                # Map signal type to expected format
+                signal_type = pattern_result['signal_type'].value if hasattr(pattern_result['signal_type'], 'value') else str(pattern_result['signal_type'])
+                direction = 'LONG' if signal_type == 'FGD' else 'SHORT'
+
+                signals.append({
+                    'type': signal_type,
+                    'time': signal_time,
+                    'price': pattern_result.get('current_price', 0),
+                    'consecutive_reds': pattern_result.get('consecutive_count', 0),
+                    'consecutive_greens': pattern_result.get('consecutive_count', 0),
+                    'action': direction,
+                    'days_ago': days_ago,
+                    'grade': pattern_result.get('signal_grade'),
+                    'confidence': pattern_result.get('confidence', 0),
+                    'trade_today': pattern_result.get('trade_today', False)
+                })
+
             return signals
 
-        # Analyze completed candles only
-        analysis_df = df.copy()
-        current_time = pd.Timestamp.now()
-
-        # Skip today's forming candle
-        if not analysis_df.empty:
-            last_candle_time = analysis_df.index[-1]
-            if last_candle_time.date() == current_time.date():
-                analysis_df = analysis_df.iloc[:-1]
-
-        if len(analysis_df) < min_consecutive + 1:
-            return signals
-
-        consecutive_greens = 0
-        consecutive_reds = 0
-        daily_signals = []
-
-        for i in range(len(analysis_df)):
-            if analysis_df.iloc[i]['close'] > analysis_df.iloc[i]['open']:
-                # Check for FGD
-                if consecutive_reds >= min_consecutive:
-                    daily_signals.append({
-                        'type': 'FGD',
-                        'time': analysis_df.index[i],
-                        'price': analysis_df.iloc[i]['close'],
-                        'consecutive_reds': consecutive_reds,
-                        'action': 'LONG'
-                    })
-
-                consecutive_greens += 1
-                consecutive_reds = 0
-            else:
-                # Check for FRD
-                if consecutive_greens >= min_consecutive:
-                    daily_signals.append({
-                        'type': 'FRD',
-                        'time': analysis_df.index[i],
-                        'price': analysis_df.iloc[i]['close'],
-                        'consecutive_greens': consecutive_greens,
-                        'action': 'SHORT'
-                    })
-
-                consecutive_reds += 1
-                consecutive_greens = 0
-
-        # Calculate days ago
-        today = current_time.date()
-        for signal in daily_signals:
-            signal_date = signal['time'].date()
-            days_ago = (today - signal_date).days
-            signal['days_ago'] = days_ago
-
-        return daily_signals
+        except Exception as e:
+            print(f"  [DEBUG] Error in FGD/FRD detection: {e}")
+            return []
 
     def detect_asian_range_sweep(self, symbol: str) -> Dict:
         """Detect Asian Range Sweep pattern"""
@@ -253,12 +247,18 @@ class EnhancedStaceyBurkeScannerWithAsianOANDA:
             print(f"  Daily Trend: {trend}")
             print(f"  Daily Streak: {consecutive_greens}G/{consecutive_reds}R")
 
-            # Check FRD/FGD
+            # Check FRD/FGD using enhanced detector results
             if daily_signals:
                 latest_signal = daily_signals[-1]
                 days_ago = latest_signal['days_ago']
+                trade_today = latest_signal.get('trade_today', False)
+                confidence = latest_signal.get('confidence', 0)
 
-                if days_ago <= 3:
+                # Enhanced debugging
+                print(f"  [DEBUG] Pattern found: {latest_signal.get('type', 'UNKNOWN')} | Days ago: {days_ago} | Trade today: {trade_today} | Confidence: {confidence}%")
+
+                # Only consider valid signals with trade_today flag or recent signals
+                if (trade_today and days_ago <= 1) or (days_ago <= 3 and confidence > 40):
                     analysis['fgd_frd'] = latest_signal
                     if latest_signal['type'] == 'FGD':
                         print(f"  [LOOK_FOR_LONGS] FGD {days_ago} day(s) ago - TODAY look for longs")
@@ -267,8 +267,10 @@ class EnhancedStaceyBurkeScannerWithAsianOANDA:
                         print(f"  [LOOK_FOR_SHORTS] FRD {days_ago} day(s) ago - TODAY look for shorts")
                         analysis['action'] = 'LOOK_FOR_TRADE'
                 else:
-                    print(f"  [SIGNAL_EXPIRED] {latest_signal['type']} {days_ago} days ago")
+                    print(f"  [SIGNAL_EXPIRED] {latest_signal['type']} {days_ago} days ago (Trade today: {trade_today})")
                     analysis['action'] = 'EXPIRED'
+            else:
+                print(f"  [WAIT] No FGD/FRD patterns detected")
 
             # Caution signals
             if consecutive_greens >= 3:

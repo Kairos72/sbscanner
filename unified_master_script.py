@@ -42,7 +42,7 @@ from acb import (
 
 def run_unified_master_analysis():
     """Ultimate complete analysis with 100% feature display"""
-    symbol_base = "AUDUSD"  # Default symbol - can be changed when calling directly
+    symbol_base = "EURUSD"  # Default symbol - can be changed when calling directly
     symbol = get_oanda_symbol(symbol_base)
     now = datetime.now()
 
