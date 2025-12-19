@@ -164,99 +164,112 @@ class ACBBacktestEngine:
             return {'signal': 'ERROR', 'error': str(e)}
 
     def detect_asian_sweep(self, h1_df: pd.DataFrame, current_time: datetime) -> Dict:
-        """Detect Asian range sweep for current time"""
+        """Detect Asian range sweep for current time
+
+        Asian Session: 19:00-00:00 EST which is 02:00-07:00 UTC the next day
+        This creates the Asian range that London session may sweep
+        """
         try:
             current_idx = h1_df.index.get_loc(current_time)
 
-            # Get current day's Asian session (19:00-23:00 EST)
-            # For London session entries (2AM-5AM EST), Asian range is same day earlier
+            # Asian session definition (UTC): 02:00-07:00 of current trading day
+            # This corresponds to 19:00-00:00 EST (same day evening to next day midnight)
             current_date = current_time.date()
-            asian_today = h1_df[
+
+            # Get Asian session candles (02:00-07:00 UTC of current trading day)
+            asian_session = h1_df[
                 (h1_df.index.date == current_date) &
-                ((h1_df.index.hour >= 19) | (h1_df.index.hour <= 23))
+                (h1_df.index.hour >= 2) & (h1_df.index.hour < 7)
             ]
 
-            # If no Asian session for current day, try previous day
-            if len(asian_today) == 0:
-                yesterday = current_date - timedelta(days=1)
-                asian_today = h1_df[
-                    (h1_df.index.date == yesterday) &
-                    ((h1_df.index.hour >= 19) | (h1_df.index.hour <= 23))
+            # If no Asian session for current day (we're early in the day),
+            # try previous day's Asian session
+            if len(asian_session) == 0:
+                prev_date = current_date - timedelta(days=1)
+                asian_session = h1_df[
+                    (h1_df.index.date == prev_date) &
+                    (h1_df.index.hour >= 2) & (h1_df.index.hour < 7)
                 ]
 
-            if len(asian_today) == 0:
+            if len(asian_session) == 0:
                 return {'found': False, 'reason': 'No Asian session data'}
 
-            asian_low = asian_today['low'].min()
-            asian_high = asian_today['high'].max()
+            asian_low = asian_session['low'].min()
+            asian_high = asian_session['high'].max()
 
-            # Check if current candle swept Asian range
-            current_candle = h1_df.iloc[current_idx]
+            # Get London session candles to check for sweep (6AM-10AM UTC)
+            london_candles = h1_df[
+                (h1_df.index.date == current_date) &
+                (h1_df.index.hour >= 6) & (h1_df.index.hour <= current_time.hour)
+            ]
 
-            swept_low = current_candle['low'] < asian_low
-            swept_high = current_candle['high'] > asian_high
+            if len(london_candles) == 0:
+                return {
+                    'found': False,
+                    'asian_low': asian_low,
+                    'asian_high': asian_high,
+                    'reason': 'No London session data yet'
+                }
 
-            # More flexible sweep detection - consider partial sweeps
-            sweep_threshold_pips = 5  # Only need 5 pips outside Asian range
+            # Check if London session has swept Asian range
+            london_low = london_candles['low'].min()
+            london_high = london_candles['high'].max()
 
-            if swept_low or swept_high:
-                sweep_low_pips = (asian_low - current_candle['low']) * 10000 if swept_low else 0
-                sweep_high_pips = (current_candle['high'] - asian_high) * 10000 if swept_high else 0
+            swept_low = london_low < asian_low
+            swept_high = london_high > asian_high
 
-                # More realistic sweep detection - smaller threshold for backtesting
-                # Accept any sweep for now to see if the strategy logic works
-                if swept_low or swept_high:
+            # Calculate sweep depth in pips
+            sweep_threshold_pips = 2  # Allow touching or slight penetration
+            sweep_low_pips = max(0, (asian_low - london_low) * 10000) if swept_low else 0
+            sweep_high_pips = max(0, (london_high - asian_high) * 10000) if swept_high else 0
 
-                    return {
-                        'found': True,
-                        'asian_low': asian_low,
-                        'asian_high': asian_high,
-                        'swept_low': swept_low,
-                        'swept_high': swept_high,
-                        'sweep_low_pips': sweep_low_pips if swept_low else 0,
-                        'sweep_high_pips': sweep_high_pips if swept_high else 0
-                    }
+            # Determine if sweep is significant enough
+            low_sweep_valid = swept_low and sweep_low_pips >= sweep_threshold_pips
+            high_sweep_valid = swept_high and sweep_high_pips >= sweep_threshold_pips
 
             return {
-                'found': False,  # No sweep detected
+                'found': low_sweep_valid or high_sweep_valid,
                 'asian_low': asian_low,
                 'asian_high': asian_high,
-                'swept_low': False,
-                'swept_high': False,
-                'sweep_low_pips': 0,
-                'sweep_high_pips': 0
+                'london_low': london_low,
+                'london_high': london_high,
+                'swept_low': low_sweep_valid,
+                'swept_high': high_sweep_valid,
+                'sweep_low_pips': sweep_low_pips,
+                'sweep_high_pips': sweep_high_pips,
+                'asian_candles': len(asian_session),
+                'london_candles': len(london_candles)
             }
 
         except Exception as e:
             return {'found': False, 'error': str(e)}
 
     def detect_asian_range_simple(self, h1_df: pd.DataFrame, current_time: datetime) -> Dict:
-        """Simple Asian range detection - no sweep requirement"""
-        try:
-            current_idx = h1_df.index.get_loc(current_time)
+        """Simple Asian range detection - no sweep requirement
 
-            # Get today's Asian session (19:00-00:00 EST)
+        Asian Session: 19:00-00:00 EST which is 02:00-07:00 UTC the next day
+        """
+        try:
+            # Asian session definition (UTC): 02:00-07:00 of current trading day
+            # This corresponds to 19:00-00:00 EST (same day evening to next day midnight)
             current_date = current_time.date()
 
-            # Asian session hours in UTC (19:00-23:59 EST = 00:00-04:59 UTC+1 next day)
-            asian_start_hour = 0   # 00:00 UTC
-            asian_end_hour = 5     # 05:00 UTC (end of session)
-
-            # For London session (9AM-12PM UTC), get Asian session from earlier same day
-            asian_candles = h1_df[
+            # Get Asian session candles (02:00-07:00 UTC of current trading day)
+            asian_session = h1_df[
                 (h1_df.index.date == current_date) &
-                (h1_df.index.hour >= asian_start_hour) & (h1_df.index.hour < asian_end_hour)
+                (h1_df.index.hour >= 2) & (h1_df.index.hour < 7)
             ]
 
-            # If no Asian session found, try previous day
-            if len(asian_candles) == 0:
+            # If no Asian session for current day (we're early in the day),
+            # try previous day's Asian session
+            if len(asian_session) == 0:
                 prev_date = current_date - timedelta(days=1)
-                asian_candles = h1_df[
+                asian_session = h1_df[
                     (h1_df.index.date == prev_date) &
-                    (h1_df.index.hour >= asian_start_hour) & (h1_df.index.hour < asian_end_hour)
+                    (h1_df.index.hour >= 2) & (h1_df.index.hour < 7)
                 ]
 
-            if len(asian_candles) == 0:
+            if len(asian_session) == 0:
                 return {
                     'found': False,
                     'asian_low': 0,
@@ -264,14 +277,16 @@ class ACBBacktestEngine:
                     'reason': 'No Asian session data'
                 }
 
-            asian_low = asian_candles['low'].min()
-            asian_high = asian_candles['high'].max()
+            asian_low = asian_session['low'].min()
+            asian_high = asian_session['high'].max()
 
             return {
                 'found': True,
                 'asian_low': asian_low,
                 'asian_high': asian_high,
-                'asian_candles': len(asian_candles)
+                'asian_candles': len(asian_session),
+                'session_start': asian_session.index[0],
+                'session_end': asian_session.index[-1]
             }
 
         except Exception as e:
@@ -374,100 +389,113 @@ class ACBBacktestEngine:
 
             # Detect FGD/FRD signals
             daily_signals = self.detect_fgd_frd_signals(daily_df, start_date)
+            print(f"  [DEBUG] Found {len(daily_signals)} daily signals for {symbol}")
+            for signal_date, signal_info in daily_signals.items():
+                print(f"    {signal_date}: {signal_info['type']} -> {signal_info['action']}")
 
             # Iterate through each hour in the backtest period
             current_time = start_date
             open_trades = []
 
+            print(f"  [DEBUG] Starting hourly loop from {start_date} to {end_date}")
+
             while current_time <= end_date:
+                # Check for new trade setups FIRST
+                current_date = current_time.date()
+
                 # Skip if not in trading hours
                 if current_time.hour < 2 or current_time.hour > 23:
                     current_time += timedelta(hours=1)
                     continue
 
+                # Add debug every day at 6AM (when London session starts)
+                if current_time.hour == 6:
+                    print(f"  [DEBUG] Processing {current_time.strftime('%Y-%m-%d %H:00')} - Date: {current_date}")
+                    if current_date in daily_signals:
+                        print(f"  [DEBUG] >>> SIGNAL FOUND FOR TODAY! {daily_signals[current_date]}")
+                    else:
+                        print(f"  [DEBUG] >>> No signal for today. Available dates: {list(daily_signals.keys())[:3]}...")
+
+                # Add debug for London session hours when we have signals
+                if 6 <= current_time.hour <= 10 and current_date in daily_signals:
+                    if current_time.hour == 6:
+                        print(f"  [DEBUG] Entering London session for signal day {current_date}")
+
                 try:
+                    # Round current_time to nearest hour for data lookup
+                    hourly_time = current_time.replace(minute=0, second=0, microsecond=0)
+
                     # Check if we have data for this time
-                    if current_time not in h1_df.index:
+                    if hourly_time not in h1_df.index:
                         current_time += timedelta(hours=1)
                         continue
-
-                    # Check for new trade setups
-                    current_date = current_time.date()
 
                     # Check if we have a daily signal
                     if current_date in daily_signals:
                         daily_signal = daily_signals[current_date]
-                        # Signal debug disabled for final run
+                        print(f"  [DEBUG] Processing signal for {current_date}: {daily_signal['type']} -> {daily_signal['action']}")
 
-                        # Check for London session (1AM-5AM EST = 8AM-12PM UTC in OANDA)
-                        if 8 <= current_time.hour <= 12:
+                        # Check for London session (1AM-5AM EST = 6AM-10AM UTC)
+                        if 6 <= current_time.hour <= 10:
+                            print(f"  [DEBUG] In London session at {current_time.strftime('%Y-%m-%d %H:00')}")
                             # STEP 1: Check if Asian range has been swept/invalidated FIRST
                             signal_action = daily_signal['action'].lower()  # 'long' for FGD, 'short' for FRD
 
-                            # Get Asian range for current day
-                            asian_sweep = self.detect_asian_sweep(h1_df, current_time)
+                            # Get Asian range and sweep detection for current time
+                            asian_sweep = self.detect_asian_sweep(h1_df, hourly_time)
                             asian_low = asian_sweep.get('asian_low', 0)
                             asian_high = asian_sweep.get('asian_high', 0)
 
-    
+                            # Debug: Check if Asian data found
+                            if 'error' in asian_sweep:
+                                print(f"  [DEBUG] Asian sweep error: {asian_sweep.get('error', 'Unknown')}")
+                            elif not asian_sweep.get('asian_candles', 0):
+                                print(f"  [DEBUG] No Asian session data for {hourly_time.strftime('%Y-%m-%d %H:00')}")
+
                             # Check for sweep requirement based on signal direction
                             sweep_detected = False
                             sweep_details = {}
 
                             if signal_action == 'long':  # FGD - need Asian LOW sweep
-                                # Check if price has swept below Asian low during today's London session (including 1AM EST = 8AM UTC)
-                                london_candles_today = h1_df[
-                                    (h1_df.index.date == current_time.date()) &
-                                    (h1_df.index.hour >= 8) &
-                                    (h1_df.index.hour <= current_time.hour)
-                                ]
-
-                                if len(london_candles_today) > 0:
-                                    london_low = london_candles_today['low'].min()
-                                    # More realistic sweep detection: touch OR slightly below Asian low
-                                    sweep_threshold_pips = 2  # Allow just touching or 2 pips below
-                                    if london_low <= asian_low + (sweep_threshold_pips / 10000):
-                                        sweep_detected = True
-                                        sweep_depth = max(0, (asian_low - london_low) * 10000)
-                                        sweep_details = {
-                                            'type': 'asian_low_sweep',
-                                            'asian_low': asian_low,
-                                            'london_low': london_low,
-                                            'sweep_depth': sweep_depth
-                                        }
-                                        print(f"  [SWEEP DETECTED] FGD: Asian low sweep/touch ({sweep_depth:.0f} pips)")
-                                        print(f"    Asian Low: {asian_low:.5f}")
-                                        print(f"    London Low: {london_low:.5f}")
+                                print(f"  [DEBUG] Checking for Asian low sweep...")
+                                print(f"    Asian Low: {asian_low:.5f}")
+                                print(f"    London Low so far: {asian_sweep.get('london_low', 0):.5f}")
+                                print(f"    Sweep detected: {asian_sweep.get('swept_low', False)}")
+                                if asian_sweep.get('swept_low', False):
+                                    sweep_detected = True
+                                    sweep_depth = asian_sweep.get('sweep_low_pips', 0)
+                                    sweep_details = {
+                                        'type': 'asian_low_sweep',
+                                        'asian_low': asian_low,
+                                        'london_low': asian_sweep.get('london_low', 0),
+                                        'sweep_depth': sweep_depth
+                                    }
+                                    print(f"  [SWEEP DETECTED] FGD: Asian low sweep ({sweep_depth:.0f} pips)")
+                                    print(f"    Asian Low: {asian_low:.5f}")
+                                    print(f"    London Low: {asian_sweep.get('london_low', 0):.5f}")
 
                             elif signal_action == 'short':  # FRD - need Asian HIGH sweep
-                                # Check if price has swept above Asian high during today's London session (including 1AM EST = 8AM UTC)
-                                london_candles_today = h1_df[
-                                    (h1_df.index.date == current_time.date()) &
-                                    (h1_df.index.hour >= 8) &
-                                    (h1_df.index.hour <= current_time.hour)
-                                ]
-
-                                if len(london_candles_today) > 0:
-                                    london_high = london_candles_today['high'].max()
-                                    # More realistic sweep detection: touch OR slightly above Asian high
-                                    sweep_threshold_pips = 2  # Allow just touching or 2 pips above
-                                    if london_high >= asian_high - (sweep_threshold_pips / 10000):
-                                        sweep_detected = True
-                                        sweep_depth = max(0, (london_high - asian_high) * 10000)
-                                        sweep_details = {
-                                            'type': 'asian_high_sweep',
-                                            'asian_high': asian_high,
-                                            'london_high': london_high,
-                                            'sweep_depth': sweep_depth
-                                        }
-                                        print(f"  [SWEEP DETECTED] FRD: Asian high sweep/touch ({sweep_depth:.0f} pips)")
-                                        print(f"    Asian High: {asian_high:.5f}")
-                                        print(f"    London High: {london_high:.5f}")
+                                print(f"  [DEBUG] Checking for Asian high sweep...")
+                                print(f"    Asian High: {asian_high:.5f}")
+                                print(f"    London High so far: {asian_sweep.get('london_high', 0):.5f}")
+                                print(f"    Sweep detected: {asian_sweep.get('swept_high', False)}")
+                                if asian_sweep.get('swept_high', False):
+                                    sweep_detected = True
+                                    sweep_depth = asian_sweep.get('sweep_high_pips', 0)
+                                    sweep_details = {
+                                        'type': 'asian_high_sweep',
+                                        'asian_high': asian_high,
+                                        'london_high': asian_sweep.get('london_high', 0),
+                                        'sweep_depth': sweep_depth
+                                    }
+                                    print(f"  [SWEEP DETECTED] FRD: Asian high sweep ({sweep_depth:.0f} pips)")
+                                    print(f"    Asian High: {asian_high:.5f}")
+                                    print(f"    London High: {asian_sweep.get('london_high', 0):.5f}")
 
                             # STEP 2: Only if sweep detected, then look for mentfx signal
                             if sweep_detected:
                                 # Detect mentfx signal
-                                mentfx_signal = self.detect_mentfx_signals(h1_df, current_time)
+                                mentfx_signal = self.detect_mentfx_signals(h1_df, hourly_time)
 
                                 if mentfx_signal['signal'] in ['GREEN_WICK', 'RED_WICK']:
                                     mentfx_type = mentfx_signal['type']
@@ -511,6 +539,15 @@ class ACBBacktestEngine:
 
                                         trade = self.execute_trade(trade_data, account_balance)
                                         open_trades.append(trade)
+                    else:
+                        # Debug: Check if we should have a signal today
+                        if str(current_date) in [str(d) for d in daily_signals.keys()]:
+                            print(f"  [DEBUG] Date mismatch! current_date: {current_date}, type: {type(current_date)}")
+                            print(f"  [DEBUG] Available dates: {list(daily_signals.keys())}")
+
+                        # Check for London session (1AM-5AM EST = 6AM-10AM UTC)
+                        if 6 <= current_time.hour <= 10:
+                            print(f"  [DEBUG] In London session at {current_time.strftime('%Y-%m-%d %H:00')} - No daily signal")
 
                     # Check for trade exits (ONLY on future candles, not entry candle)
                     for trade in open_trades[:]:
@@ -519,7 +556,7 @@ class ACBBacktestEngine:
                             continue
 
                         # Get current candle
-                        current_candle = h1_df.loc[current_time]
+                        current_candle = h1_df.loc[hourly_time]
 
                         # Check stop loss
                         if trade['direction'] == 'LONG':
@@ -792,7 +829,7 @@ def main():
 
     # Configure backtest parameters
     symbols = ['AUDUSD']  # Testing AUDUSD only as requested
-    start_date = datetime(2025, 1, 1)  # Start of 2025 for guaranteed signals
+    start_date = datetime.now() - timedelta(weeks=2)  # 2 weeks back
     end_date = datetime.now()
 
     # Run backtest
