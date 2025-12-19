@@ -23,6 +23,7 @@ class DMRLevelCalculator:
         self.min_pip_distance = 20  # Minimum 20 pips to be significant
         self.lookback_days = 30    # Days to look back for weekly levels
         self.three_day_window = 72  # Hours for 3-day levels
+        self.hodlod_pip_threshold = 30  # Minimum 30 pips for HOD/LOD significance
 
     def calculate_all_dmr_levels(self, df: pd.DataFrame,
                                 current_time: datetime = None) -> Dict:
@@ -44,6 +45,10 @@ class DMRLevelCalculator:
             'three_day': self.get_three_day_dmr_levels(df),
             'weekly': self.get_weekly_dmr_levels(df, current_time),
             'current': self.get_current_day_levels(df),
+            'hodlod': self.get_hodlod_levels(df),  # New: High/Low of Day
+            'monthly': self.get_monthly_dmr_levels(df, current_time),  # New: Monthly levels
+            'extreme_closes': self.get_extreme_close_levels(df, current_time),  # New: HCOM/LCOM
+            'fdtm': self.get_fdtml_levels(df, current_time),  # New: First Day Trading Month
             'active': self.get_active_dmr_levels(df)
         }
 
@@ -383,3 +388,188 @@ class DMRLevelCalculator:
             })
 
         return targets
+
+    def get_hodlod_levels(self, df: pd.DataFrame) -> Dict:
+        """
+        Get today's High of Day (HOD) and Low of Day (LOD) levels.
+        These become significant when broken on Monday or after consolidation.
+        """
+        today = df.index[-1].date()
+        today_df = df[df.index.to_series().dt.date == today]
+
+        if len(today_df) == 0:
+            return {'high': None, 'low': None}
+
+        return {
+            'high': {
+                'price': today_df['high'].max(),
+                'time': today_df['high'].idxmax(),
+                'strength': 'INTRADAY',
+                'type': 'HOD',
+                'broken': None,  # Will be set if broken
+                'break_time': None
+            },
+            'low': {
+                'price': today_df['low'].min(),
+                'time': today_df['low'].idxmin(),
+                'strength': 'INTRADAY',
+                'type': 'LOD',
+                'broken': None,
+                'break_time': None
+            }
+        }
+
+    def get_monthly_dmr_levels(self, df: pd.DataFrame,
+                               current_time: datetime) -> Dict:
+        """
+        Get current month's high and low (HOM/LOM) - most powerful levels.
+        """
+        # Get first day of current month
+        month_start = current_time.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        # Get all data for current month
+        monthly_df = df[df.index >= month_start]
+
+        if len(monthly_df) == 0:
+            return {'high': None, 'low': None}
+
+        max_idx = monthly_df['high'].idxmax()
+        min_idx = monthly_df['low'].idxmin()
+
+        return {
+            'high': {
+                'price': monthly_df['high'].max(),
+                'time': max_idx,
+                'strength': 'MAXIMUM',
+                'type': 'HOM',  # High of Month
+                'day': max_idx.strftime('%Y-%m-%d') if hasattr(max_idx, 'strftime') else 'Unknown'
+            },
+            'low': {
+                'price': monthly_df['low'].min(),
+                'time': min_idx,
+                'strength': 'MAXIMUM',
+                'type': 'LOM',  # Low of Month
+                'day': min_idx.strftime('%Y-%m-%d') if hasattr(min_idx, 'strftime') else 'Unknown'
+            }
+        }
+
+    def get_extreme_close_levels(self, df: pd.DataFrame,
+                                 current_time: datetime) -> Dict:
+        """
+        Get Highest Close of Month (HCOM) and Lowest Close of Month (LCOM).
+        These are critical ACB validation levels.
+        """
+        # Get first day of current month
+        month_start = current_time.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        # Get daily data (aggregate H1 to daily)
+        daily_df = df.resample('D').agg({
+            'open': 'first',
+            'high': 'max',
+            'low': 'min',
+            'close': 'last'
+        }).dropna()
+
+        # Filter for current month
+        monthly_daily = daily_df[daily_df.index >= month_start]
+
+        if len(monthly_daily) == 0:
+            return {'high': None, 'low': None}
+
+        max_close_idx = monthly_daily['close'].idxmax()
+        min_close_idx = monthly_daily['close'].idxmin()
+
+        return {
+            'high': {
+                'price': monthly_daily['close'].max(),
+                'time': max_close_idx,
+                'strength': 'EXTREME',
+                'type': 'HCOM',  # Highest Close of Month
+                'day': max_close_idx.strftime('%Y-%m-%d') if hasattr(max_close_idx, 'strftime') else 'Unknown'
+            },
+            'low': {
+                'price': monthly_daily['close'].min(),
+                'time': min_close_idx,
+                'strength': 'EXTREME',
+                'type': 'LCOM',  # Lowest Close of Month
+                'day': min_close_idx.strftime('%Y-%m-%d') if hasattr(min_close_idx, 'strftime') else 'Unknown'
+            }
+        }
+
+    def get_fdtml_levels(self, df: pd.DataFrame,
+                        current_time: datetime) -> Dict:
+        """
+        Get First Day of Trading Month (FDTM) levels.
+        FDTM establishes the initial O-H-L-C for the new month.
+        """
+        # Get first day of current month
+        month_start = current_time.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        # Find the first trading day of the month
+        daily_df = df.resample('D').agg({
+            'open': 'first',
+            'high': 'max',
+            'low': 'min',
+            'close': 'last'
+        }).dropna()
+
+        # Filter for current month
+        monthly_daily = daily_df[daily_df.index >= month_start]
+
+        if len(monthly_daily) == 0:
+            return None
+
+        # Get the first trading day
+        first_day = monthly_daily.iloc[0]
+
+        return {
+            'open': first_day['open'],
+            'high': first_day['high'],
+            'low': first_day['low'],
+            'close': first_day['close'],
+            'date': first_day.name,
+            'type': 'FDTM',
+            'range_size': first_day['high'] - first_day['low']
+        }
+
+    def check_monday_breakout(self, df: pd.DataFrame,
+                               current_time: datetime) -> Dict:
+        """
+        Check if Monday broke HOD/LOD levels - special case for DMR.
+        According to manual: "When Monday breaks a HOD or LOD level,
+        the market may now be 'in play' for the week."
+        """
+        if current_time.weekday() != 1:  # Not Monday
+            return {'monday_breakout': False}
+
+        # Get Monday data
+        monday = current_time.date()
+        monday_df = df[df.index.to_series().dt.date == monday]
+
+        if len(monday_df) < 20:  # Need enough data
+            return {'monday_breakout': False}
+
+        # Get previous day levels (Sunday/Friday)
+        prev_day = monday - timedelta(days=1)
+        while prev_day.weekday() == 6:  # Skip Saturday
+            prev_day -= timedelta(days=1)
+
+        prev_df = df[df.index.to_series().dt.date == prev_day]
+
+        if len(prev_df) == 0:
+            return {'monday_breakout': False}
+
+        prev_hod = prev_df['high'].max()
+        prev_lod = prev_df['low'].min()
+        monday_hod = monday_df['high'].max()
+        monday_lod = monday_df['low'].min()
+
+        return {
+            'monday_breakout': True,
+            'broke_hod': monday_hod > prev_hod + self.hodlod_pip_threshold / 10000,
+            'broke_lod': monday_lod < prev_lod - self.hodlod_pip_threshold / 10000,
+            'prev_hod': prev_hod,
+            'prev_lod': prev_lod,
+            'monday_hod': monday_hod,
+            'monday_lod': monday_lod
+        }

@@ -22,6 +22,8 @@ from .manipulation.liquidity_hunt_detector import LiquidityHuntDetector, Liquidi
 from .manipulation.market_phase_identifier import MarketPhaseIdentifier, MarketPhase, PhaseConfidence
 from .signal import ACBAwareSignalGenerator, SignalConfidence, FiveStarSetupPrioritizer, SetupType, SetupRating
 from .management.target_calculator import DMRTargetCalculator, TargetType, TargetPriority
+from .enhanced_acb_detector import EnhancedACBDetector
+from .enhanced_integration import EnhancedACBIntegration
 
 __all__ = [
     'ACBDetector',
@@ -49,5 +51,8 @@ __all__ = [
     # Phase 5 - Trade Management
     'DMRTargetCalculator',
     'TargetType',
-    'TargetPriority'
+    'TargetPriority',
+    # Enhanced ACB Implementation
+    'EnhancedACBDetector',
+    'EnhancedACBIntegration'
 ]

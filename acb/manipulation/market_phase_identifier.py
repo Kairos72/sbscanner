@@ -241,8 +241,10 @@ class MarketPhaseIdentifier:
             for level_type, levels in dmr_levels.items():
                 if isinstance(levels, dict):
                     for level_name, level_info in levels.items():
-                        if level_info and 'price' in level_info:
+                        if level_info and isinstance(level_info, dict) and 'price' in level_info:
                             level_price = level_info['price']
+                        elif isinstance(level_info, (int, float)):
+                            level_price = level_info
 
                             # False breakout above
                             if (candle['high'] > level_price and
@@ -279,8 +281,10 @@ class MarketPhaseIdentifier:
             for level_type, levels in dmr_levels.items():
                 if isinstance(levels, dict):
                     for level_name, level_info in levels.items():
-                        if level_info and 'price' in level_info:
+                        if level_info and isinstance(level_info, dict) and 'price' in level_info:
                             level_price = level_info['price']
+                        elif isinstance(level_info, (int, float)):
+                            level_price = level_info
                             if (candle['low'] <= level_price <= candle['high'] and
                                 level_price not in touched_levels):
                                 touched_levels.append(level_price)
@@ -311,8 +315,12 @@ class MarketPhaseIdentifier:
                 for level_type, levels in dmr_levels.items():
                     if isinstance(levels, dict):
                         for level_name, level_info in levels.items():
-                            if level_info and 'price' in level_info:
+                            if level_info and isinstance(level_info, dict) and 'price' in level_info:
                                 level_price = level_info['price']
+                            elif isinstance(level_info, (int, float)):
+                                level_price = level_info
+                            else:
+                                continue
 
                                 # Check if level acted as support/resistance
                                 if (candle['low'] <= level_price <= candle['high'] and
@@ -351,8 +359,12 @@ class MarketPhaseIdentifier:
                 for level_type, levels in dmr_levels.items():
                     if isinstance(levels, dict):
                         for level_name, level_info in levels.items():
-                            if level_info and 'price' in level_info:
+                            if level_info and isinstance(level_info, dict) and 'price' in level_info:
                                 level_price = level_info['price']
+                            elif isinstance(level_info, (int, float)):
+                                level_price = level_info
+                            else:
+                                continue
 
                                 # Bullish reversal at support
                                 if (candle['low'] <= level_price and

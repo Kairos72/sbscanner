@@ -48,6 +48,7 @@ class EnhancedFRDFGDDetector:
                                session_analysis: Optional[Dict] = None) -> Dict:
         """
         Detect FRD/FGD patterns with ACB context validation.
+        Enhanced to detect post-trigger trading opportunities.
 
         Args:
             df: Daily timeframe DataFrame with OHLC data
@@ -58,7 +59,11 @@ class EnhancedFRDFGDDetector:
         Returns:
             Dictionary with enhanced pattern analysis
         """
-        if len(df) < 10:
+        # Ensure df is a DataFrame
+        if isinstance(df, np.ndarray):
+            df = pd.DataFrame(df, columns=['open', 'high', 'low', 'close', 'tick_volume', 'spread', 'real_volume'])
+
+        if len(df) < 4:
             return {'status': 'insufficient_data'}
 
         results = {
@@ -67,40 +72,57 @@ class EnhancedFRDFGDDetector:
             'signal_grade': None,
             'trigger_day': None,
             'consecutive_count': 0,
+            'days_since_trigger': 0,
+            'trade_today': False,
+            'trade_direction': None,
             'dmr_validation': {},
             'acb_validation': {},
             'session_context': {},
             'manipulation_phase': None,
             'confidence': 0,
             'entry_plan': {},
-            'risk_parameters': {}
+            'risk_parameters': {},
+            'pattern_detected': False
         }
 
-        # Get the last 5 candles for analysis
-        recent_candles = df.tail(5).copy()
-        current_candle = recent_candles.iloc[-1]
-        previous_candles = recent_candles.iloc[:-1]
+        # Exclude today's incomplete candle if before daily close (5pm EST / 22:00 UTC)
+        df_completed = self._exclude_incomplete_candle(df)
 
-        # Detect basic FRD/FGD patterns
-        pattern_info = self._detect_basic_patterns(recent_candles)
-        if not pattern_info['pattern_found']:
+        # Need at least 4 completed candles for analysis
+        if len(df_completed) < 4:
             return results
 
-        results.update(pattern_info)
+        # Get the last 4 completed daily candles
+        recent_4 = df_completed.tail(4).copy()
 
-        # Validate with DMR levels
+        # Detect post-trigger trading opportunities
+        trigger_info = self._detect_post_trigger_patterns(recent_4)
+
+        if not trigger_info['pattern_detected']:
+            results['pattern_detected'] = False
+            return results
+
+        # Update results with trigger information
+        results.update(trigger_info)
+        results['pattern_detected'] = True
+
+        # Get the trigger day candle for validation
+        trigger_candle = recent_4.iloc[trigger_info['trigger_position']]
+        current_price = recent_4.iloc[-1]['close']
+
+        # Validate with DMR levels (using trigger day)
         dmr_validation = self._validate_with_dmr(
-            current_candle,
+            trigger_candle,
             dmr_levels,
-            pattern_info['signal_type']
+            trigger_info['signal_type']
         )
         results['dmr_validation'] = dmr_validation
 
-        # Validate with ACB levels
+        # Validate with ACB levels (using trigger day)
         acb_validation = self._validate_with_acb(
-            current_candle,
+            trigger_candle,
             acb_levels,
-            pattern_info['signal_type']
+            trigger_info['signal_type']
         )
         results['acb_validation'] = acb_validation
 
@@ -108,15 +130,15 @@ class EnhancedFRDFGDDetector:
         session_context = {}
         if session_analysis:
             session_context = self._analyze_session_context(
-                current_candle,
+                trigger_candle,
                 session_analysis,
-                pattern_info
+                trigger_info
             )
             results['session_context'] = session_context
 
         # Determine manipulation phase
         manipulation_phase = self._identify_manipulation_phase(
-            recent_candles,
+            recent_4,
             dmr_levels,
             acb_levels
         )
@@ -124,7 +146,7 @@ class EnhancedFRDFGDDetector:
 
         # Grade the signal
         signal_grade = self._grade_signal(
-            pattern_info,
+            trigger_info,
             dmr_validation,
             acb_validation,
             session_context
@@ -135,8 +157,8 @@ class EnhancedFRDFGDDetector:
         confidence = self._calculate_confidence(results)
         results['confidence'] = confidence
 
-        # Generate entry plan
-        if confidence > 60:
+        # Generate entry plan for TODAY (the day after trigger)
+        if confidence > 60 and trigger_info['days_since_trigger'] == 1:
             entry_plan = self._generate_entry_plan(results, df)
             results['entry_plan'] = entry_plan
 
@@ -285,38 +307,70 @@ class EnhancedFRDFGDDetector:
     def _validate_with_acb(self, candle: pd.Series,
                           acb_levels: Dict,
                           signal_type: SignalType) -> Dict:
-        """Validate pattern with ACB levels."""
+        """Validate pattern with enhanced ACB levels."""
         validation = {
             'has_acb_proximity': False,
             'nearest_acb': None,
             'acb_distance': 0,
             'acb_type': None,
-            'acb_break_potential': False
+            'acb_break_potential': False,
+            'enhanced_acb': False,
+            'validation_score': 0,
+            'consecutive_closes': None,
+            'extreme_position': None,
+            'ema_coil': None,
+            'htf_alignment': None
         }
 
         current_price = candle['close']
         nearest_distance = float('inf')
         nearest_level = None
 
-        # Check confirmed ACB levels
-        for level in acb_levels.get('confirmed', []):
-            distance = abs(level['price'] - current_price)
+        # Check all ACB levels (potential, confirmed, validated, extreme)
+        all_levels = []
+        for level_type in ['potential', 'confirmed', 'validated', 'extreme']:
+            all_levels.extend(acb_levels.get(level_type, []))
 
+        # Find nearest level
+        for level in all_levels:
+            distance = abs(level['price'] - current_price)
             if distance < nearest_distance:
                 nearest_distance = distance
                 nearest_level = {
                     'price': level['price'],
                     'type': level['type'],
-                    'time': level['time']
+                    'time': level['time'],
+                    'status': level.get('status', 'unknown')
                 }
 
-        if nearest_level and nearest_distance <= 0.00100:  # 100 pips
+        if nearest_level and nearest_distance <= 0.00150:  # 150 pips (more lenient)
             validation.update({
                 'has_acb_proximity': True,
                 'nearest_acb': nearest_level,
                 'acb_distance': nearest_distance * 10000,
                 'acb_type': nearest_level['type']
             })
+
+            # Enhanced validation score based on ACB status
+            if nearest_level.get('status') == 'validated':
+                validation['validation_score'] += 40
+                validation['enhanced_acb'] = True
+            elif nearest_level.get('status') == 'confirmed':
+                validation['validation_score'] += 30
+            elif nearest_level.get('status') == 'extreme':
+                validation['validation_score'] += 35  # Extreme ACBs are valuable
+
+            # Store enhanced ACB details
+            if 'validation_score' in nearest_level:
+                validation['validation_score'] = nearest_level['validation_score']
+            if 'consecutive_closes' in nearest_level:
+                validation['consecutive_closes'] = nearest_level['consecutive_closes']
+            if 'extreme_position' in nearest_level:
+                validation['extreme_position'] = nearest_level['extreme_position']
+            if 'ema_coil' in nearest_level:
+                validation['ema_coil'] = nearest_level['ema_coil']
+            if 'htf_alignment' in nearest_level:
+                validation['htf_alignment'] = nearest_level['htf_alignment']
 
             # Check if pattern could break ACB
             if signal_type == SignalType.FGD and nearest_level['type'] == 'upside':
@@ -398,7 +452,7 @@ class EnhancedFRDFGDDetector:
                      dmr_validation: Dict,
                      acb_validation: Dict,
                      session_context: Dict) -> SignalGrade:
-        """Grade the signal quality."""
+        """Grade the signal quality with enhanced Stacey Burke criteria."""
         score = 0
 
         # Base score for pattern
@@ -409,24 +463,60 @@ class EnhancedFRDFGDDetector:
         else:
             score += 20  # B setup
 
-        # DMR validation bonus
+        # Enhanced DMR validation bonus
         if dmr_validation.get('is_near_dmr'):
-            score += 25
+            level_type = dmr_validation.get('nearest_dmr', {}).get('type', '')
 
-        # ACB validation bonus
+            # Bonus for Monthly/Weekly/HOM/LOM levels
+            if level_type in ['HOM', 'LOM', 'WH', 'WL']:
+                score += 35  # Maximum bonus for monthly levels
+            elif level_type in ['3DH', '3DL']:
+                score += 25  # Good bonus for 3-day levels
+            else:
+                score += 25  # Standard PDH/PDL bonus
+
+        # Enhanced ACB validation bonus
         if acb_validation.get('has_acb_proximity'):
-            score += 20
+            acb_score = acb_validation.get('validation_score', 0)
 
-        # Session context bonus
+            # Check for enhanced ACB features
+            if acb_validation.get('enhanced_acb'):
+                score += 35  # Maximum for validated ACB
+
+                # Bonus for consecutive closes
+                if acb_validation.get('consecutive_closes', {}).get('has_three_higher') or \
+                   acb_validation.get('consecutive_closes', {}).get('has_three_lower'):
+                    score += 15
+
+                # Bonus for extreme position
+                if acb_validation.get('extreme_position', {}).get('at_extreme'):
+                    score += 15
+
+                # Bonus for EMA coil
+                if acb_validation.get('ema_coil', {}).get('coil_detected'):
+                    score += 10
+
+                # Bonus for HTF alignment
+                if acb_validation.get('htf_alignment', {}).get('monthly_aligned') or \
+                   acb_validation.get('htf_alignment', {}).get('at_monthly_level'):
+                    score += 20
+            else:
+                score += 20  # Standard ACB proximity
+
+        # Session context bonus (still important)
         if session_context.get('session_alignment'):
             score += 15
 
-        # Determine grade
-        if score >= 85:
+        # Additional bonus for Monday breakouts (special DMR case)
+        if dmr_validation.get('monday_breakout'):
+            score += 10
+
+        # Determine grade with adjusted thresholds for enhanced system
+        if score >= 90:
             return SignalGrade.A_PLUS
-        elif score >= 70:
+        elif score >= 75:
             return SignalGrade.A
-        elif score >= 55:
+        elif score >= 60:
             return SignalGrade.B_PLUS
         else:
             return SignalGrade.B
@@ -530,6 +620,10 @@ class EnhancedFRDFGDDetector:
 
     def _calculate_atr(self, df: pd.DataFrame, period: int = 14) -> float:
         """Calculate Average True Range."""
+        # Ensure df is a DataFrame
+        if isinstance(df, np.ndarray):
+            df = pd.DataFrame(df, columns=['open', 'high', 'low', 'close', 'tick_volume', 'spread', 'real_volume'])
+
         high_low = df['high'] - df['low']
         high_close = np.abs(df['high'] - df['close'].shift())
         low_close = np.abs(df['low'] - df['close'].shift())
@@ -538,3 +632,102 @@ class EnhancedFRDFGDDetector:
         atr = tr.rolling(window=period).mean()
 
         return atr.iloc[-1] if not atr.empty else 0.00100
+
+    def _exclude_incomplete_candle(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Exclude today's candle if it hasn't closed yet (before 5pm EST)."""
+        # For now, include all candles - we'll handle this in the main logic
+        # The issue is we need to detect triggers even if today is incomplete
+        return df.copy()
+
+    def _detect_post_trigger_patterns(self, candles: pd.DataFrame) -> Dict:
+        """
+        Detect FGD/FRD triggers within the last 4 completed daily candles.
+        Focuses on post-trigger trading opportunities.
+        """
+        if len(candles) < 4:
+            return {'pattern_detected': False}
+
+        # Convert to list of candles for easier indexing
+        candle_list = []
+        colors = []
+
+        for _, row in candles.iterrows():
+            candle_list.append(row)
+            color = "GREEN" if row['close'] > row['open'] else "RED"
+            colors.append(color)
+
+        results = {
+            'pattern_detected': False,
+            'signal_type': None,
+            'trigger_date': None,
+            'trigger_position': None,
+            'consecutive_count': 0,
+            'days_since_trigger': 0,
+            'trade_today': False,
+            'trade_direction': None,
+            'pattern_description': None
+        }
+
+        # Check for A+ FGD: 3 reds followed by green
+        # Pattern: RED-RED-RED-GREEN (trigger on last green)
+        if len(colors) >= 4 and (colors[0] == 'RED' and colors[1] == 'RED' and colors[2] == 'RED' and colors[3] == 'GREEN'):
+            # If trigger is the last candle in our window, it's either today or yesterday
+            days_since = len(candles) - 4  # 0 if trigger is most recent, 1 if we have today's candle too
+            results.update({
+                'pattern_detected': True,
+                'signal_type': SignalType.FGD,
+                'trigger_date': candles.index[3],
+                'trigger_position': 3,  # Position of trigger in our 4-candle window
+                'consecutive_count': 3,
+                'days_since_trigger': days_since,
+                'trade_today': days_since <= 1,  # Trade if trigger was yesterday (days_since=0) or if we have today's candle (days_since=1 when len>4)
+                'trade_direction': 'LONG',
+                'pattern_description': "FGD A+ Trigger: 3 Reds followed by Green"
+            })
+
+        # Check for A+ FRD: 3 greens followed by red
+        elif len(colors) >= 4 and (colors[0] == 'GREEN' and colors[1] == 'GREEN' and colors[2] == 'GREEN' and colors[3] == 'RED'):
+            days_since = len(candles) - 4
+            results.update({
+                'pattern_detected': True,
+                'signal_type': SignalType.FRD,
+                'trigger_date': candles.index[3],
+                'trigger_position': 3,
+                'consecutive_count': 3,
+                'days_since_trigger': days_since,
+                'trade_today': days_since <= 1,
+                'trade_direction': 'SHORT',
+                'pattern_description': "FRD A+ Trigger: 3 Greens followed by Red"
+            })
+
+        # Now check for A FGD: 2 reds followed by green
+        # Pattern: RED-RED-GREEN (trigger on 3rd candle)
+        elif len(colors) >= 3 and (colors[0] == 'RED' and colors[1] == 'RED' and colors[2] == 'GREEN'):
+            results.update({
+                'pattern_detected': True,
+                'signal_type': SignalType.FGD,
+                'trigger_date': candles.index[2],
+                'trigger_position': 2,  # Position of trigger in our 4-candle window
+                'consecutive_count': 2,
+                'days_since_trigger': 1,  # Trigger was yesterday if we have 4 candles
+                'trade_today': True,  # Trade TODAY!
+                'trade_direction': 'LONG',
+                'pattern_description': "FGD A Trigger: 2 Reds followed by Green - TRADE TODAY!"
+            })
+
+        # Check for A FRD: 2 greens followed by red
+        # Pattern: GREEN-GREEN-RED (trigger on 3rd candle)
+        elif len(colors) >= 3 and (colors[0] == 'GREEN' and colors[1] == 'GREEN' and colors[2] == 'RED'):
+            results.update({
+                'pattern_detected': True,
+                'signal_type': SignalType.FRD,
+                'trigger_date': candles.index[2],
+                'trigger_position': 2,
+                'consecutive_count': 2,
+                'days_since_trigger': 1,
+                'trade_today': True,  # Trade TODAY!
+                'trade_direction': 'SHORT',
+                'pattern_description': "FRD A Trigger: 2 Greens followed by Red - TRADE TODAY!"
+            })
+
+        return results

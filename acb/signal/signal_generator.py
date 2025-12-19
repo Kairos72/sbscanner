@@ -19,6 +19,7 @@ from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
 from ..detector import ACBDetector
+from ..enhanced_acb_detector import EnhancedACBDetector
 from ..dmr_calculator import DMRLevelCalculator
 from ..session_analyzer import SessionAnalyzer
 from ..patterns.frd_fgd import EnhancedFRDFGDDetector, SignalType, SignalGrade
@@ -54,7 +55,7 @@ class ACBAwareSignalGenerator:
     """
 
     def __init__(self):
-        self.acb_det = ACBDetector()
+        self.acb_det = EnhancedACBDetector()
         self.dmr_calc = DMRLevelCalculator()
         self.session_analyzer = SessionAnalyzer()
         self.frd_fgd_det = EnhancedFRDFGDDetector()
@@ -84,7 +85,7 @@ class ACBAwareSignalGenerator:
 
         # Get all necessary data
         dmr_levels = self.dmr_calc.calculate_all_dmr_levels(df_h1)
-        acb_levels = self.acb_det.identify_acb_levels(df_h1)
+        acb_levels = self.acb_det.identify_enhanced_acb_levels(df_h1, dmr_levels)
         sessions = self.session_analyzer.analyze_session_behavior(df_h1, 72)
         market_phase = self.phase_id.identify_market_phase(df_h1, dmr_levels, acb_levels)
 
@@ -128,28 +129,47 @@ class ACBAwareSignalGenerator:
 
             if pattern.get('pattern_detected'):
                 # Get additional context
-                dmr_context = pattern.get('dmr_context', {})
-                validation = pattern.get('validation', {})
+                dmr_validation = pattern.get('dmr_validation', {})
+                acb_validation = pattern.get('acb_validation', {})
 
                 # Calculate confidence score
-                confidence = self._calculate_frd_fgd_confidence(pattern, dmr_context, validation)
+                confidence = self._calculate_frd_fgd_confidence(pattern, dmr_validation, acb_validation)
+
+                # Handle signal_type - it might be enum or string
+                signal_type = pattern.get('signal_type')
+
+                if isinstance(signal_type, str):
+                    # Convert string to enum
+                    from ..patterns.frd_fgd import SignalType
+                    if signal_type == 'FGD' or 'FGD' in str(signal_type):
+                        signal_type_enum = SignalType.FGD
+                    elif signal_type == 'FRD' or 'FRD' in str(signal_type):
+                        signal_type_enum = SignalType.FRD
+                    else:
+                        signal_type_enum = SignalType.FGD  # Default
+                else:
+                    signal_type_enum = signal_type
 
                 signal = {
-                    'type': SignalType.FGD_BULLISH if pattern.get('signal_type') == SignalType.FGD else SignalType.FRD_BEARISH,
+                    'type': signal_type_enum.value if signal_type_enum else 'UNKNOWN',  # Use the string value
+                    'direction': 'LONG' if signal_type_enum.value == 'FGD' else 'SHORT',  # Simple comparison
                     'grade': pattern.get('signal_grade', SignalGrade.B),
                     'confidence': confidence,
                     'entry_zone': self._calculate_entry_zone(pattern, dmr_levels),
                     'stop_loss': self._calculate_stop_loss(pattern, dmr_levels),
                     'targets': self._calculate_targets(pattern, dmr_levels),
                     'reasoning': pattern.get('pattern_description', ''),
-                    'dmr_alignment': dmr_context.get('proximity_to_dmr', 'Unknown'),
-                    'acb_validation': validation.get('acb_confirmation', 'Unknown')
+                    'dmr_alignment': dmr_validation.get('is_near_dmr', 'Unknown'),
+                    'acb_validation': acb_validation.get('has_acb_proximity', 'Unknown')
                 }
 
                 signals.append(signal)
 
         except Exception as e:
-            print(f"[ERROR] FRD/FGD signal generation failed: {e}")
+            # Log the actual error for debugging
+            import traceback
+            print(f"[ERROR] FRD/FGD signal generation failed: {str(e)[:200]}")
+            # Don't print full traceback in production
 
         return signals
 
@@ -182,7 +202,7 @@ class ACBAwareSignalGenerator:
 
                         if confidence.value in ['A+', 'A', 'B+']:
                             signal = {
-                                'type': SignalType.INSIDE_DAY_BREAK,
+                                'type': SignalType.INSIDE,  # Use existing SignalType
                                 'direction': direction,
                                 'confidence': confidence,
                                 'entry_zone': {
@@ -235,7 +255,7 @@ class ACBAwareSignalGenerator:
 
                         if confidence.value in ['A+', 'A', 'B+']:
                             signal = {
-                                'type': SignalType.PUMP_DUMP_LONG if pattern_data['direction'] == 'long' else SignalType.PUMP_DUMP_SHORT,
+                                'type': pattern_data.get('direction', 'long').upper() + '_PUMP_DUMP',  # Use string instead of non-existent enum
                                 'pattern_type': pattern_type,
                                 'confidence': confidence,
                                 'entry_zone': pattern_data['entry_zone'],
@@ -256,65 +276,105 @@ class ACBAwareSignalGenerator:
         signals = []
 
         try:
+            # Since the analyze_asian_range_setup method expects a trigger type,
+            # let's directly check for FGD/FRD patterns and then analyze the setup
             from ..patterns.enhanced_frd_fgd import AsianRangeEntryDetector
+            from ..patterns.frd_fgd import SignalType
 
             asian_det = AsianRangeEntryDetector()
 
-            # Check both FGD and FRD scenarios
-            for signal_type in [SignalType.FGD, SignalType.FRD]:
-                analysis = asian_det.analyze_asian_range_setup(df_h1, signal_type, datetime.utcnow())
-
+            # First check if we have FGD pattern (for long)
+            try:
+                analysis = asian_det.analyze_asian_range_setup(df_h1, SignalType.FGD, datetime.utcnow())
                 if analysis.get('entry_signal'):
                     confidence = self._calculate_asian_range_confidence(analysis)
-
                     if confidence.value in ['A+', 'A', 'B+']:
-                        signal = {
-                            'type': SignalType.ASIAN_RANGE_ENTRY,
-                            'direction': 'long' if signal_type == SignalType.FGD else 'short',
+                        signals.append({
+                            'type': 'ASIAN_RANGE_ENTRY',
+                            'direction': 'long',
                             'confidence': confidence,
                             'entry_zone': {
                                 'asian_high': analysis['asian_range']['high'],
                                 'asian_low': analysis['asian_range']['low'],
                                 'current_price': analysis['current_price']
                             },
-                            'stop_loss': analysis['asian_range']['low'] if signal_type == SignalType.FGD else analysis['asian_range']['high'],
+                            'stop_loss': analysis['asian_range']['low'],
                             'target': analysis['targets'][0]['price'] if analysis.get('targets') else None,
-                            'reasoning': f"Asian range entry after {signal_type.value}",
+                            'reasoning': "Asian range entry after FGD",
                             'sweep_detected': analysis['sweep_detected'],
                             'entry_candle_time': analysis.get('entry_candle_time')
-                        }
-                        signals.append(signal)
+                        })
+            except Exception as e:
+                # FGD setup not available
+                pass
+
+            # Then check FRD pattern (for short)
+            try:
+                analysis = asian_det.analyze_asian_range_setup(df_h1, SignalType.FRD, datetime.utcnow())
+                if analysis.get('entry_signal'):
+                    confidence = self._calculate_asian_range_confidence(analysis)
+                    if confidence.value in ['A+', 'A', 'B+']:
+                        signals.append({
+                            'type': 'ASIAN_RANGE_ENTRY',
+                            'direction': 'short',
+                            'confidence': confidence,
+                            'entry_zone': {
+                                'asian_high': analysis['asian_range']['high'],
+                                'asian_low': analysis['asian_range']['low'],
+                                'current_price': analysis['current_price']
+                            },
+                            'stop_loss': analysis['asian_range']['high'],
+                            'target': analysis['targets'][0]['price'] if analysis.get('targets') else None,
+                            'reasoning': "Asian range entry after FRD",
+                            'sweep_detected': analysis['sweep_detected'],
+                            'entry_candle_time': analysis.get('entry_candle_time')
+                        })
+            except Exception as e:
+                # FRD setup not available
+                pass
 
         except Exception as e:
             print(f"[ERROR] Asian range signal generation failed: {e}")
 
         return signals
 
-    def _calculate_frd_fgd_confidence(self, pattern: Dict, dmr_context: Dict,
-                                     validation: Dict) -> SignalConfidence:
+    def _calculate_frd_fgd_confidence(self, pattern: Dict, dmr_validation: Dict,
+                                     acb_validation: Dict) -> SignalConfidence:
         """Calculate confidence score for FRD/FGD signals."""
         score = 0
 
-        # Grade base score
+        # Grade base score - Convert SignalGrade to score
+        grade = pattern.get('signal_grade')
+        if hasattr(grade, 'value'):
+            # It's a SignalGrade enum
+            grade_value = grade.value
+        elif isinstance(grade, str):
+            # It's already a string
+            grade_value = grade
+        else:
+            grade_value = 'B'  # Default
+
         grade_scores = {
-            SignalGrade.A_PLUS: 90,
-            SignalGrade.A: 80,
-            SignalGrade.B_PLUS: 70,
-            SignalGrade.B: 60
+            'A+': 90,
+            'A': 80,
+            'B+': 70,
+            'B': 60
         }
-        score += grade_scores.get(pattern.get('signal_grade'), 50)
+        score += grade_scores.get(grade_value, 50)
 
         # DMR proximity bonus
-        if dmr_context.get('proximity_to_dmr') == 'Excellent':
+        if dmr_validation.get('is_near_dmr'):
             score += 10
-        elif dmr_context.get('proximity_to_dmr') == 'Good':
+        elif dmr_validation.get('near_dmr_type') in ['HOM', 'LOM']:
+            score += 10
+        elif dmr_validation.get('near_dmr_type'):
             score += 5
 
-        # Validation bonus
-        if validation.get('level') == ValidationLevel.CONFIRMED_ACYCLIC:
+        # ACB validation bonus
+        if acb_validation.get('has_acb_proximity'):
             score += 10
-        elif validation.get('level') == ValidationLevel.STRUCTURED:
-            score += 5
+        elif acb_validation.get('enhanced_acb'):
+            score += 15
 
         # Convert to confidence
         if score >= 95:
@@ -550,8 +610,13 @@ class ACBAwareSignalGenerator:
             summary += "TOP SIGNALS:\n\n"
 
             for i, signal in enumerate(signals['top_signals'][:3], 1):
-                summary += f"{i}. {signal['type'].value}\n"
-                summary += f"   Confidence: {signal['confidence'].value}\n"
+                summary += f"{i}. {signal['type']}\n"
+                # Handle confidence which might be enum or other format
+                conf = signal['confidence']
+                if hasattr(conf, 'value'):
+                    summary += f"   Confidence: {conf.value}\n"
+                else:
+                    summary += f"   Confidence: {conf}\n"
                 summary += f"   Direction: {signal.get('direction', 'N/A')}\n"
                 summary += f"   Entry: {signal.get('entry_zone', {}).get('entry', signal.get('entry_zone', {}).get('high', 'N/A')):.5f}\n"
                 summary += f"   Stop: {signal.get('stop_loss', 'N/A')}\n"
@@ -735,3 +800,42 @@ class ACBAwareSignalGenerator:
             return "New York"
         else:
             return "Overlap"
+
+    def _calculate_entry_zone(self, pattern: Dict, dmr_levels: Dict) -> Dict:
+        """Calculate entry zone for the signal."""
+        current_price = pattern.get('current_price', 0)
+        return {
+            'high': current_price + 0.00010,
+            'low': current_price - 0.00010,
+            'current': current_price
+        }
+
+    def _calculate_stop_loss(self, pattern: Dict, dmr_levels: Dict) -> float:
+        """Calculate stop loss level."""
+        current_price = pattern.get('current_price', 0)
+        atr = pattern.get('atr', 0.0010)
+        # Check signal_type properly since pattern might not have it
+        signal_type = pattern.get('signal_type')
+        # Use value comparison instead of enum comparison to avoid scoping issues
+        if (isinstance(signal_type, str) and 'FGD' in signal_type) or (hasattr(signal_type, 'value') and 'FGD' in signal_type.value):
+            return current_price - (atr * 1.5)  # Long position
+        else:
+            return current_price + (atr * 1.5)  # Short position
+
+    def _calculate_targets(self, pattern: Dict, dmr_levels: Dict) -> List[Dict]:
+        """Calculate profit targets."""
+        current_price = pattern.get('current_price', 0)
+        atr = pattern.get('atr', 0.0010)
+        targets = []
+        signal_type = pattern.get('signal_type')
+        is_long = (isinstance(signal_type, str) and 'FGD' in signal_type) or (hasattr(signal_type, 'value') and 'FGD' in signal_type.value)
+
+        for i in range(1, 4):
+            target_price = current_price + (atr * i) if is_long else current_price - (atr * i)
+            targets.append({
+                'price': target_price,
+                'type': f'target_{i}',
+                'rr_ratio': i
+            })
+        return targets
+

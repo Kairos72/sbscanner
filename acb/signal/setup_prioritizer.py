@@ -367,7 +367,11 @@ class FiveStarSetupPrioritizer:
                     direction = self._predict_breakout_direction(compression_window)
                     rating = self._rate_coil_spring(compression_window, range_contraction)
 
-                    if rating['stars'] >= SetupRating.THREE_STAR:
+                    # Convert rating to numeric value for comparison
+                    rating_value = list(SetupRating).index(rating['stars'])
+                    threshold_value = list(SetupRating).index(SetupRating.THREE_STAR)
+
+                    if rating_value >= threshold_value:
                         setup = {
                             'type': SetupType.COIL_SPRING,
                             'direction': direction,
