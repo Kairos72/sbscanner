@@ -2,8 +2,21 @@
 ENHANCED STACEY BURKE SCANNER WITH ASIAN RANGE SWEEP - OANDA VERSION
 ==================================================================
 
-Modified to connect to OANDA MT5 broker
-Now uses proper ACB framework for accurate FGD/FRD detection
+Perfect ACB Strategy Implementation:
+✅ FGD/FRD Pattern Detection using Enhanced ACB Framework
+✅ Asian Range Sweep Identification with London Session Timing
+✅ Pin Bar Momentum Analysis for Entry Confirmation
+✅ Session-Aware Trade Execution (2AM-5AM EST Prime Window)
+✅ Risk/Reward Calculation with Asian Range Targets
+
+Strategy Requirements:
+1. FGD or FRD signal on daily timeframe
+2. Asian Range Sweep (yesterday's range reference)
+3. Pin Bar rejection during London session (2AM-5AM EST)
+4. Proper entry timing on H1 closes (3AM, 4AM, 5AM)
+5. Stop below sweep low/high, target at Asian range extreme
+
+Now using proper ACB framework for accurate pattern detection
 """
 
 import MetaTrader5 as mt5
@@ -122,83 +135,260 @@ class EnhancedStaceyBurkeScannerWithAsianOANDA:
             return []
 
     def detect_asian_range_sweep(self, symbol: str) -> Dict:
-        """Detect Asian Range Sweep pattern"""
+        """
+        Detect Asian Range Sweep pattern - Enhanced with London session timing and pin bar detection
+        """
         try:
             oanda_symbol = get_oanda_symbol(symbol)
 
-            # Get H1 data
-            h1_df = self.get_data(oanda_symbol, mt5.TIMEFRAME_H1, 72)
+            # Get H1 data - need more data for comprehensive analysis
+            h1_df = self.get_data(oanda_symbol, mt5.TIMEFRAME_H1, 120)  # 5 days of data
             if h1_df is None or len(h1_df) == 0:
                 return {'found': False, 'reason': 'No H1 data'}
 
-            today = pd.Timestamp.now().date()
-            today_candles = h1_df[h1_df.index.date == today]
+            # Get current time for session analysis
+            current_time = datetime.now()
+            today = current_time.date()
+            current_hour = current_time.hour
+            current_minute = current_time.minute
 
+            # Define trading session times (EST)
+            NY_SESSION_START = 8  # 8AM EST
+            LONDON_START = 2  # 2AM EST (7am UTC)
+            LONDON_END = 5  # 5AM EST (10am UTC)
+
+            print(f"    Current Session: {current_hour:02d}{current_minute:02d} EST")
+
+            # Filter today's candles
+            today_candles = h1_df[h1_df.index.date == today]
             if len(today_candles) == 0:
                 return {'found': False, 'reason': 'No candles for today'}
 
-            # Asian session candles (00:00-06:00)
-            asian_today = today_candles[
-                (today_candles.index.hour >= 0) & (today_candles.index.hour <= 6)
+            # Asian session candles (19:00-23:00 EST = 00:00-05:00 UTC)
+            # Yesterday's Asian range (since Asian session starts on previous day in EST)
+            yesterday = today - timedelta(days=1)
+            asian_session_start = current_time.replace(hour=0, minute=0)  # Start of today
+            asian_session_end = current_time.replace(hour=5, minute=0)     # End of Asian session (5am EST)
+
+            # Get yesterday's Asian range (best method for FGD trades)
+            yesterday_candles = h1_df[
+                (h1_df.index.date == yesterday)
             ]
 
-            if len(asian_today) == 0:
-                return {'found': False, 'reason': 'No Asian session data'}
+            if len(yesterday_candles) == 0:
+                return {'found': False, 'reason': 'No yesterday data for Asian range'}
 
-            asian_high = asian_today['high'].max()
-            asian_low = asian_today['low'].min()
-            asian_range = (asian_high - asian_low) * 10000
+            # Yesterday's Asian session: 19:00-23:00 EST
+            asian_yesterday = yesterday_candles[
+                (yesterday_candles.index.hour >= 19) | (yesterday_candles.index.hour <= 23)
+            ]
 
-            # Post-Asian session
-            post_asian = today_candles[today_candles.index.hour > 6]
+            if len(asian_yesterday) == 0:
+                return {'found': False, 'reason': 'No Asian session data for yesterday'}
+
+            # Calculate yesterday's Asian range
+            asian_yesterday_high = asian_yesterday['high'].max()
+            asian_yesterday_low = asian_yesterday['low'].min()
+            asian_range = (asian_yesterday_high - asian_yesterday_low) * 10000
+
+            # Today's Asian session (00:00-06:00 EST = 05:00-11:00 UTC)
+            # Use today's Asian session as reference but also consider yesterday's range
+            asian_today = today_candles[
+                (today_candles.index.hour >= 5) & (today_candles.index.hour <= 11)
+            ]
+
+            if len(asian_today) > 0:
+                today_asian_high = asian_today['high'].max()
+                today_asian_low = asian_today['low'].min()
+                # Combine ranges for better analysis
+                asian_high = max(asian_yesterday_high, today_asian_high)
+                asian_low = min(asian_yesterday_low, today_asian_low)
+                asian_range = (asian_high - asian_low) * 10000
+            else:
+                asian_high = asian_yesterday_high
+                asian_low = asian_yesterday_low
+
+            # Get all post-Asian session data (after 6AM EST)
+            post_asian = today_candles[today_candles.index.hour > 11]
 
             sweep_info = {
                 'found': False,
                 'asian_high': asian_high,
                 'asian_low': asian_low,
                 'asian_range': asian_range,
-                'current_price': today_candles.iloc[-1]['close'],
+                'yesterday_asian_high': asian_yesterday_high,
+                'yesterday_asian_low': asian_yesterday_low,
+                'today_asian_high': today_asian_high if len(asian_today) > 0 else None,
+                'today_asian_low': today_asian_low if len(asian_today) > 0 else None,
+                'current_price': today_candles.iloc[-1]['close'] if len(today_candles) > 0 else h1_df.iloc[-1]['close'],
                 'swept_low': False,
                 'swept_high': False,
-                'rejection': None
+                'rejection': None,
+                'pin_bar_detected': False,
+                'london_session_active': False,
+                'entry_candle': None,
+                'entry_time': None
             }
 
+            # Session analysis
+            if current_hour >= NY_SESSION_START and current_hour < LONDON_START:
+                sweep_info['session_status'] = "PRE_LONDON"
+                print(f"    Status: Waiting for London Open (2AM EST)")
+            elif current_hour >= LONDON_START and current_hour <= LONDON_END:
+                sweep_info['london_session_active'] = True
+                sweep_info['session_status'] = "LONDON_ACTIVE"
+                print(f"    Status: London session active (2AM-5AM EST) - PRIME ENTRY WINDOW")
+            elif current_hour > LONDON_END:
+                sweep_info['session_status'] = "POST_LONDON"
+                print(f"    Status: After London session - Lower priority")
+
+            # Analyze price action in post-Asian session
             if len(post_asian) > 0:
                 post_asian_low = post_asian['low'].min()
                 post_asian_high = post_asian['high'].max()
 
-                # Check Asian low sweep
+                # Check for Asian low sweep
                 if post_asian_low < asian_low:
                     sweep_info['swept_low'] = True
                     sweep_info['sweep_low_pips'] = (asian_low - post_asian_low) * 10000
+                    print(f"    Asian Low SWEPT by {sweep_info['sweep_low_pips']:.0f} pips")
 
-                    # Check rejection
-                    sweep_candle = post_asian[post_asian['low'] == post_asian_low].iloc[0]
-                    if sweep_candle['close'] > sweep_candle['low']:
-                        sweep_info['rejection'] = {
-                            'type': 'bullish',
-                            'entry': sweep_candle['close'],
-                            'stop': post_asian_low,
-                            'rejection_pips': (sweep_candle['close'] - sweep_candle['low']) * 10000
-                        }
-                        sweep_info['found'] = True
-
-                # Check Asian high sweep
+                # Check for Asian high sweep
                 if post_asian_high > asian_high:
                     sweep_info['swept_high'] = True
                     sweep_info['sweep_high_pips'] = (post_asian_high - asian_high) * 10000
+                    print(f"    Asian High SWEPT by {sweep_info['sweep_high_pips']:.0f} pips")
 
-                    # Check rejection
-                    sweep_candle = post_asian[post_asian['high'] == post_asian_high].iloc[0]
-                    if sweep_candle['close'] < sweep_candle['high']:
-                        if not sweep_info['rejection']:  # Don't overwrite low rejection
+                # Enhanced pin bar detection using mentfx Triple M logic
+                for i in range(1, len(post_asian)):  # Start from 1 to compare with previous candle
+                    candle = post_asian.iloc[i]
+                    prev_candle = post_asian.iloc[i-1]
+                    candle_time = post_asian.index[i]
+
+                    # Calculate average volume for comparison
+                    if len(post_asian) > 10:
+                        avg_volume = post_asian['tick_volume'].mean()
+                        volume_threshold = avg_volume * 1.2  # 20% above average
+                    else:
+                        volume_threshold = 1000  # Default threshold
+
+                    # mentfx Triple M - High Wick Pattern (Bearish Rejection)
+                    # Condition: high > prev_high and close < prev_high
+                    if (candle['high'] > prev_candle['high'] and
+                        candle['close'] < prev_candle['high']):
+
+                        print(f"    [mentfx] High Wick detected: Price tried to go higher but rejected")
+                        print(f"    Previous High: {prev_candle['high']:.5f}, Current High: {candle['high']:.5f}, Close: {candle['close']:.5f}")
+
+                        # Only consider if this aligns with Asian sweep and FRD signal
+                        if sweep_info['swept_high']:
+                            sweep_info['pin_bar_detected'] = True
+                            sweep_info['entry_candle'] = candle
+                            sweep_info['entry_time'] = candle_time
                             sweep_info['rejection'] = {
                                 'type': 'bearish',
-                                'entry': sweep_candle['close'],
-                                'stop': post_asian_high,
-                                'rejection_pips': (sweep_candle['high'] - sweep_candle['close']) * 10000
+                                'entry': candle['close'],
+                                'stop': candle['high'],
+                                'rejection_pips': (candle['high'] - candle['close']) * 10000,
+                                'detection_method': 'mentfx_triple_m_high_wick'
                             }
                             sweep_info['found'] = True
+                            print(f"    [ALIGNMENT] High Wick aligns with Asian High sweep!")
+                            break
+
+                    # mentfx Triple M - Low Wick Pattern (Bullish Rejection)
+                    # Condition: low < prev_low and close > prev_low
+                    elif (candle['low'] < prev_candle['low'] and
+                          candle['close'] > prev_candle['low']):
+
+                        print(f"    [mentfx] Low Wick detected: Price tried to go lower but rejected")
+                        print(f"    Previous Low: {prev_candle['low']:.5f}, Current Low: {candle['low']:.5f}, Close: {candle['close']:.5f}")
+
+                        # Additional volume confirmation
+                        if candle['tick_volume'] > volume_threshold:
+                            print(f"    [VOLUME] Strong volume confirmation: {candle['tick_volume']:,} > {volume_threshold:,.0f}")
+                        else:
+                            print(f"    [VOLUME] Volume weak: {candle['tick_volume']:,} < {volume_threshold:,.0f}")
+
+                        # Only consider if this aligns with Asian sweep and FGD signal
+                        if sweep_info['swept_low']:
+                            sweep_info['pin_bar_detected'] = True
+                            sweep_info['entry_candle'] = candle
+                            sweep_info['entry_time'] = candle_time
+                            sweep_info['rejection'] = {
+                                'type': 'bullish',
+                                'entry': candle['close'],
+                                'stop': candle['low'],
+                                'rejection_pips': (candle['close'] - candle['low']) * 10000,
+                                'detection_method': 'mentfx_triple_m_low_wick'
+                            }
+                            sweep_info['found'] = True
+                            print(f"    [ALIGNMENT] Low Wick aligns with Asian Low sweep!")
+                            break
+
+                # Fallback: Enhanced traditional pin bar detection if no mentfx signals found
+                if not sweep_info['pin_bar_detected']:
+                    for i in range(len(post_asian)):
+                        candle = post_asian.iloc[i]
+                        candle_time = post_asian.index[i]
+
+                        # Calculate average volume for comparison
+                        if len(post_asian) > 10:
+                            avg_volume = post_asian['tick_volume'].mean()
+                            volume_threshold = avg_volume * 1.2  # 20% above average
+                        else:
+                            volume_threshold = 1000  # Default threshold
+
+                        # Bullish pin bar detection (for long entries after FGD)
+                        if (candle['close'] > candle['open'] and
+                            candle['low'] < post_asian_low * 1.0003 and  # Near sweep low
+                            candle['close'] - candle['low'] > 5 and  # Reasonable pin bar range (5+ pips)
+                            candle['tick_volume'] > volume_threshold):  # Above average volume
+
+                            sweep_info['pin_bar_detected'] = True
+                            sweep_info['entry_candle'] = candle
+                            sweep_info['entry_time'] = candle_time
+                            sweep_info['rejection'] = {
+                                'type': 'bullish',
+                                'entry': candle['close'],
+                                'stop': candle['low'],
+                                'rejection_pips': (candle['close'] - candle['low']) * 10000,
+                                'detection_method': 'traditional_pin_bar'
+                            }
+                            sweep_info['found'] = True
+                            print(f"    [FALLBACK] Traditional bullish pin bar detected")
+                            break
+
+                        # Bearish pin bar detection (for short entries after FRD)
+                        elif (candle['close'] < candle['open'] and
+                              candle['high'] > post_asian_high * 0.9997 and  # Near sweep high
+                              candle['high'] - candle['close'] > 5 and  # Reasonable pin bar range
+                              candle['tick_volume'] > volume_threshold):  # Above average volume
+
+                            if not sweep_info['rejection']:  # Don't overwrite
+                                sweep_info['rejection'] = {
+                                    'type': 'bearish',
+                                    'entry': candle['close'],
+                                    'stop': candle['high'],
+                                    'rejection_pips': (candle['high'] - candle['close']) * 10000,
+                                    'detection_method': 'traditional_pin_bar'
+                                }
+                                sweep_info['found'] = True
+                                print(f"    [FALLBACK] Traditional bearish pin bar detected")
+                            sweep_info['entry_candle'] = candle
+                            sweep_info['entry_time'] = candle_time
+                            break
+
+            # Calculate confidence levels for pattern quality
+            confidence_score = 0
+            if sweep_info['found']:
+                confidence_score += 30  # Asian sweep detected
+                if sweep_info['pin_bar_detected']:
+                    confidence_score += 40  # Pin bar confirmation
+                if sweep_info['london_session_active']:
+                    confidence_score += 30  # London session timing
+
+                sweep_info['confidence'] = confidence_score
 
             return sweep_info
 
@@ -287,75 +477,226 @@ class EnhancedStaceyBurkeScannerWithAsianOANDA:
         analysis['asian_sweep'] = asian
 
         if asian['found']:
-            print(f"\n  [ASIAN_SWEEP] Pattern found!")
-            print(f"    Asian Range: {asian['asian_low']:.5f} - {asian['asian_high']:.5f} ({asian['asian_range']:.0f} pips)")
+            print(f"\n  [ASIAN_SWEEP] Pattern detected!")
+            print(f"    Yesterday's Asian Range: {asian['yesterday_asian_low']:.5f} - {asian['yesterday_asian_high']:.5f} ({asian['asian_range']:.0f} pips)")
+            if 'today_asian_high' in asian and asian['today_asian_low']:
+                print(f"    Today's Asian Range: {asian['today_asian_low']:.5f} - {asian['today_asian_high']:.5f}")
 
             if asian['swept_low']:
                 print(f"    Asian Low SWEPT: {asian['sweep_low_pips']:.0f} pips")
+
+            if asian['swept_high']:
+                print(f"    Asian High SWEPT: {asian['sweep_high_pips']:.0f} pips")
+
+            if asian['pin_bar_detected']:
+                entry_candle = asian['entry_candle']
+                entry_time = asian['entry_time']
+                detection_method = asian.get('rejection', {}).get('detection_method', 'unknown')
+                print(f"\n  🔍 PIN BAR DETECTED at {entry_time.strftime('%H:%M EST')}!")
+                print(f"    Detection Method: {detection_method.replace('_', ' ').title()}")
+                print(f"    Entry Candle: Close: {entry_candle['close']:.5f}")
+                print(f"    Candle Range: {entry_candle['low']:.5f} - {entry_candle['high']:.5f}")
+                print(f"    Volume: {entry_candle['tick_volume']:,}")
 
             if asian['rejection']:
                 r = asian['rejection']
                 print(f"    {r['type'].title()} Rejection: {r['rejection_pips']:.0f} pips")
                 print(f"    Entry: {r['entry']:.5f}")
                 print(f"    Stop: {r['stop']:.5f}")
+                print(f"    Rejection Range: {r['rejection_pips']:.0f} pips")
 
-                if analysis['fgd_frd'] and analysis['fgd_frd']['action'] == r['type'].upper():
-                    print(f"\n  [!!!] PERFECT SETUP: FGD/FRD + Asian Sweep!")
-                    analysis['action'] = 'STRONG_SETUP'
+                # Validate FGD/FRD alignment with Asian sweep
+                if analysis['fgd_frd']:
+                    fgd_type = analysis['fgd_frd']['type']
+                    fgd_direction = analysis['fgd_frd'].get('action', 'LONG' if fgd_type == 'FGD' else 'SHORT')
+
+                    # Perfect setup: FGD + bullish rejection after Asian low sweep
+                    if (fgd_type == 'FGD' and fgd_direction == 'LONG' and
+                        r['type'] == 'bullish'):
+                        print(f"\n  [!!!] PERFECT SETUP: FGD + Bullish Asian Rejection!")
+                        analysis['action'] = 'STRONG_SETUP'
+                        analysis['trade_direction'] = 'LONG'
+                        analysis['entry_price'] = r['entry']
+                        analysis['stop_loss'] = r['stop']
+                        analysis['target'] = asian['asian_high']  # Target Asian range high
+
+                    # Signal alignment check
+                    if analysis['action'] == 'STRONG_SETUP':
+                        print(f"\n  [STRATEGY ALIGNMENT] ✓")
+                        print(f"    • FGD Signal: {fgd_type} (Days ago: {analysis['fgd_frd']['days_ago']})")
+                        print(f"    • Direction: {fgd_direction}")
+                        print(f"    • Asian Sweep: {r['type']} rejection")
+                        print(f"    • Entry: At {r['entry']:.5f}")
+                        print(f"    • Stop: {r['stop']:.5f} (below sweep low)")
+                        stop_diff = r['entry'] - r['stop']
+                        risk_reward = (r['rejection_pips'] / stop_diff) if stop_diff != 0 else 0
+                        print(f"    • Risk/Reward: {risk_reward:.1f}")
+
+                    # London session importance
+                    if asian['london_session_active']:
+                        print(f"\n  [TIMING] ✓ London session active - PRIME entry window")
+                        print(f"    Focus on 3AM, 4AM, 5AM H1 closes")
+                    elif asian['session_status'] == 'PRE_LONDON':
+                        print(f"\n  [TIMING] Waiting for London Open (2AM EST)")
+                    elif asian['session_status'] == 'POST_LONDON':
+                        print(f"\n  [WARNING] London session over - Lower priority entries")
+
+                else:
+                    # Asian sweep without rejection
+                    print(f"    Status: Asian sweep detected but no rejection yet")
+                    print(f"    Asian Range: {asian['asian_low']:.5f} - {asian['asian_high']:.5f} ({asian['asian_range']:.0f} pips)")
+
         else:
-            if 'asian_low' in asian:
-                print(f"\n  Asian Range: {asian['asian_low']:.5f} - {asian['asian_high']:.5f}")
+            print(f"\n  No Asian sweep pattern detected")
 
         # Entry timing reminder
         print(f"\n  Entry Timing: Wait for 2AM EST (London Open)")
-        print(f"  Enter on H1 closes at: 3AM, 4AM, 5AM EST")
+        print(f"  Entry Criteria: Asian sweep + FGD/FRD + Pin Bar Rejection")
+        print(f"  Prime Window: 3AM, 4AM, 5AM H1 closes")
 
         return analysis
 
     def scan_all_pairs(self):
-        """Scan all pairs"""
-        print("\nSCANNING WITH ASIAN RANGE SWEEP STRATEGY")
+        """Scan all pairs with prioritized STRONG setups"""
+        print("\nENHANCED ACB + ASIAN RANGE SWEEP SCANNER")
+        print("=" * 70)
+        print("Searching for FGD/FRD + Asian Sweep Pin Bar Rejections")
         print("=" * 70)
 
         results = {}
+        strong_setups = []
+        valid_signals = []
+
         for pair in self.major_pairs:
             try:
                 result = self.analyze_symbol(pair)
                 results[pair] = result
+
+                # Categorize results
+                if result.get('action') == 'STRONG_SETUP':
+                    strong_setups.append(pair)
+                elif result.get('action') in ['LOOK_FOR_TRADE', 'STRONG_SETUP']:
+                    valid_signals.append(pair)
             except Exception as e:
                 print(f"  [ERROR] {pair}: {e}")
 
-        # Summary
+        # Display STRONG setups first (highest priority)
+        if strong_setups:
+            print("\n" + "!" * 70)
+            print("!!! STRONG SETUPS DETECTED !!!")
+            print("!" * 70)
+            print("Perfect FGD/FRD + Asian Sweep + Pin Bar Rejection")
+            print("=" * 70)
+
+            for pair in strong_setups:
+                r = results[pair]
+                fgd_frd = r.get('fgd_frd', {})
+                asian = r.get('asian_sweep', {})
+
+                print(f"\n{pair} - STRONG SETUP")
+                print(f"  Entry Price: {r.get('entry_price', 'N/A'):.5f}")
+                print(f"  Stop Loss: {r.get('stop_loss', 'N/A'):.5f}")
+                print(f"  Target: {r.get('target', 'N/A'):.5f}")
+                print(f"  FGD Signal: {fgd_frd.get('type', 'UNKNOWN')} ({fgd_frd.get('days_ago', 0)} days ago)")
+                print(f"  Asian Range: {asian.get('asian_low', 'N/A'):.5f} - {asian.get('asian_high', 'N/A'):.5f}")
+                print(f"  Confidence: {asian.get('confidence', 0)}%")
+
+        # Display valid setups
+        if valid_signals and not strong_setups:
+            print("\n" + "=" * 70)
+            print("VALID SETUPS")
+            print("=" * 70)
+
+            for pair in valid_signals:
+                r = results[pair]
+                fgd_frd = r.get('fgd_frd', {})
+                asian = r.get('asian_sweep', {})
+
+                print(f"\n{pair} - {r.get('action')}")
+                print(f"  Signal: {fgd_frd.get('type', 'NONE')}")
+                print(f"  Asian Sweep: {'Active' if asian.get('found') else 'None'}")
+
+        # Summary table for all pairs
         print("\n" + "=" * 70)
-        print("SUMMARY")
+        print("COMPLETE SUMMARY")
         print("=" * 70)
-        print(f"{'Pair':<12} {'Price':<10} {'Signal':<10} {'Asian':<8} {'Action':<15}")
+        print(f"{'Pair':<12} {'Price':<10} {'Signal':<10} {'Asian':<8} {'Status':<15}")
         print("-" * 70)
 
-        for symbol, r in results.items():
+        # Sort: STRONG setups first, then valid signals, then others
+        sorted_pairs = []
+        for pair in strong_setups:
+            sorted_pairs.append(pair)
+        for pair in valid_signals:
+            if pair not in strong_setups:
+                sorted_pairs.append(pair)
+        for pair in self.major_pairs:
+            if pair not in sorted_pairs:
+                sorted_pairs.append(pair)
+
+        for symbol in sorted_pairs:
+            r = results.get(symbol, {})
             fgd_frd = r.get('fgd_frd')
             signal = fgd_frd.get('type', 'NONE') if fgd_frd else 'NONE'
             asian_sweep = r.get('asian_sweep', {})
             asian = 'YES' if asian_sweep.get('found') else 'NO'
-            action = r['action']
+
+            # Get action status with priority
+            action = r.get('action', 'NONE')
+            if action == 'STRONG_SETUP':
+                action = f"⭐ {action}"
 
             print(f"{symbol:<12} {r['price']:<10.5f} {signal:<10} {asian:<8} {action:<15}")
 
-        # Save results
+        # Count statistics
+        strong_count = len(strong_setups)
+        valid_count = len(valid_signals)
+
+        print(f"\n" + "=" * 70)
+        print(f"Statistics: {strong_count} STRONG setups, {valid_count} valid signals")
+
+        # Save comprehensive results
         with open('asian_sweep_results.txt', 'w') as f:
-            f.write(f"Asian Range Sweep Analysis - {datetime.now()}\n")
+            f.write(f"ENHANCED ACB + ASIAN SWEEP ANALYSIS - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write("=" * 70 + "\n\n")
 
-            for symbol, r in results.items():
-                f.write(f"{symbol}: {r['price']:.5f} - {r['action']}\n")
-                if r.get('fgd_frd'):
-                    s = r['fgd_frd']
-                    f.write(f"  Signal: {s['type']} ({s['days_ago']} days ago)\n")
-                if r.get('asian_sweep', {}).get('found'):
-                    f.write(f"  Asian Sweep: Active\n")
-                f.write("\n")
+            # Summary
+            f.write("SUMMARY:\n")
+            f.write(f"STRONG Setups: {len(strong_setups)}\n")
+            f.write(f"Valid Signals: {len(valid_signals)}\n\n")
 
-        print("\nResults saved to 'asian_sweep_results.txt'")
+            # STRONG setups details
+            if strong_setups:
+                f.write("!!! STRONG SETUPS DETECTED !!!\n\n")
+                for pair in strong_setups:
+                    r = results[pair]
+                    fgd_frd = r.get('fgd_frd', {})
+                    asian = r.get('asian_sweep', {})
+
+                    f.write(f"\n{pair}:\n")
+                    f.write(f"  Action: STRONG_SETUP\n")
+                    f.write(f"  Entry: {r.get('entry_price', 'N/A'):.5f}\n")
+                    f.write(f"  Stop: {r.get('stop_loss', 'N/A'):.5f}\n")
+                    f.write(f"  Target: {r.get('target', 'N/A'):.5f}\n")
+                    f.write(f"  FGD: {fgd_frd.get('type', 'UNKNOWN')} ({fgd_frd.get('days_ago', 0)} days ago)\n")
+                    f.write(f"  Asian Range: {asian.get('asian_low', 'N/A'):.5f} - {asian.get('asian_high', 'N/A'):.5f}\n")
+                    f.write(f"  Sweep: {'Low sweep' if asian.get('swept_low') else 'High sweep'}\n")
+                    f.write(f"  Confidence: {asian.get('confidence', 0)}%\n")
+
+            # All pairs status
+            f.write("\n\nALL PAIRS STATUS:\n")
+            f.write("-" * 50 + "\n")
+
+            for symbol, r in results.items():
+                fgd_frd = r.get('fgd_frd')
+                signal = fgd_frd.get('type', 'NONE') if fgd_frd else 'NONE'
+                asian_sweep = r.get('asian_sweep', {})
+                asian = 'ACTIVE' if asian_sweep.get('found') else 'NONE'
+                status = r.get('action', 'NONE')
+
+                f.write(f"{symbol:<10} | Signal: {signal:<8} | Asian: {asian:<7} | Status: {status}\n")
+
+        print("\nDetailed results saved to 'asian_sweep_results.txt'")
 
     def run(self):
         """Main execution"""

@@ -93,4 +93,9 @@ logs/
 output/
 reports/
 backtest_results/
+
+# Backtest Results (specific files)
+acb_backtest_results.json
+acb_backtest_trades.csv
+
 MT5_EXPORT_GUIDE.txt
