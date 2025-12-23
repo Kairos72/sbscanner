@@ -166,20 +166,20 @@ class ACBBacktestEngine:
     def detect_asian_sweep(self, h1_df: pd.DataFrame, current_time: datetime) -> Dict:
         """Detect Asian range sweep for current time
 
-        Asian Session: 19:00-00:00 EST which is 02:00-07:00 UTC the next day
+        Asian Session: 19:00-00:00 EST which is 00:00-05:00 UTC the same day
         This creates the Asian range that London session may sweep
         """
         try:
             current_idx = h1_df.index.get_loc(current_time)
 
-            # Asian session definition (UTC): 02:00-07:00 of current trading day
-            # This corresponds to 19:00-00:00 EST (same day evening to next day midnight)
+            # Asian session definition (UTC): 00:00-05:00 of current trading day
+            # This corresponds to 19:00-00:00 EST (same calendar day)
             current_date = current_time.date()
 
-            # Get Asian session candles (02:00-07:00 UTC of current trading day)
+            # Get Asian session candles (00:00-05:00 UTC of current trading day)
             asian_session = h1_df[
                 (h1_df.index.date == current_date) &
-                (h1_df.index.hour >= 2) & (h1_df.index.hour < 7)
+                (h1_df.index.hour >= 0) & (h1_df.index.hour < 5)
             ]
 
             # If no Asian session for current day (we're early in the day),
@@ -188,7 +188,7 @@ class ACBBacktestEngine:
                 prev_date = current_date - timedelta(days=1)
                 asian_session = h1_df[
                     (h1_df.index.date == prev_date) &
-                    (h1_df.index.hour >= 2) & (h1_df.index.hour < 7)
+                    (h1_df.index.hour >= 0) & (h1_df.index.hour < 5)
                 ]
 
             if len(asian_session) == 0:
@@ -247,17 +247,17 @@ class ACBBacktestEngine:
     def detect_asian_range_simple(self, h1_df: pd.DataFrame, current_time: datetime) -> Dict:
         """Simple Asian range detection - no sweep requirement
 
-        Asian Session: 19:00-00:00 EST which is 02:00-07:00 UTC the next day
+        Asian Session: 19:00-00:00 EST which is 00:00-05:00 UTC the same day
         """
         try:
-            # Asian session definition (UTC): 02:00-07:00 of current trading day
-            # This corresponds to 19:00-00:00 EST (same day evening to next day midnight)
+            # Asian session definition (UTC): 00:00-05:00 of current trading day
+            # This corresponds to 19:00-00:00 EST (same calendar day)
             current_date = current_time.date()
 
-            # Get Asian session candles (02:00-07:00 UTC of current trading day)
+            # Get Asian session candles (00:00-05:00 UTC of current trading day)
             asian_session = h1_df[
                 (h1_df.index.date == current_date) &
-                (h1_df.index.hour >= 2) & (h1_df.index.hour < 7)
+                (h1_df.index.hour >= 0) & (h1_df.index.hour < 5)
             ]
 
             # If no Asian session for current day (we're early in the day),
@@ -266,7 +266,7 @@ class ACBBacktestEngine:
                 prev_date = current_date - timedelta(days=1)
                 asian_session = h1_df[
                     (h1_df.index.date == prev_date) &
-                    (h1_df.index.hour >= 2) & (h1_df.index.hour < 7)
+                    (h1_df.index.hour >= 0) & (h1_df.index.hour < 5)
                 ]
 
             if len(asian_session) == 0:
@@ -399,41 +399,44 @@ class ACBBacktestEngine:
                 'close': 'last'
             }).dropna()
 
-            filtered_signals = {}
-            filtered_count = 0
+            # WEEKLY TREND FILTER DISABLED
+            # filtered_signals = {}
+            # filtered_count = 0
+            #
+            # for signal_date, signal_info in daily_signals.items():
+            #     signal_type = signal_info['type']
+            #
+            #     # Find the weekly candle that contains this signal date
+            #     signal_week_start = pd.Timestamp(signal_date - timedelta(days=signal_date.weekday()))
+            #
+            #     # Get completed weekly candles before this week
+            #     completed_weeks = weekly_df_sorted[weekly_df_sorted.index < signal_week_start]
+            #
+            #     if len(completed_weeks) > 0:
+            #         latest_week = completed_weeks.iloc[-1]
+            #         is_green_week = latest_week['close'] > latest_week['open']
+            #
+            #         # Apply filter logic
+            #         if is_green_week and signal_type == 'FRD':
+            #             print(f"    [TREND FILTER] {signal_date}: FRD signal filtered - weekly trend is bullish")
+            #             filtered_count += 1
+            #             continue
+            #         elif not is_green_week and signal_type == 'FGD':
+            #             print(f"    [TREND FILTER] {signal_date}: FGD signal filtered - weekly trend is bearish")
+            #             filtered_count += 1
+            #             continue
+            #         else:
+            #             print(f"    [TREND FILTER] {signal_date}: {signal_type} -> {signal_info['action']} (aligned with weekly trend)")
+            #             filtered_signals[signal_date] = signal_info
+            #     else:
+            #         # If no completed weeks, allow the signal
+            #         print(f"    [TREND FILTER] {signal_date}: {signal_type} -> {signal_info['action']} (no weekly data)")
+            #         filtered_signals[signal_date] = signal_info
+            #
+            # print(f"  [DEBUG] Weekly trend filter removed {filtered_count} signals, {len(filtered_signals)} remain")
+            # daily_signals = filtered_signals
 
-            for signal_date, signal_info in daily_signals.items():
-                signal_type = signal_info['type']
-
-                # Find the weekly candle that contains this signal date
-                signal_week_start = pd.Timestamp(signal_date - timedelta(days=signal_date.weekday()))
-
-                # Get completed weekly candles before this week
-                completed_weeks = weekly_df_sorted[weekly_df_sorted.index < signal_week_start]
-
-                if len(completed_weeks) > 0:
-                    latest_week = completed_weeks.iloc[-1]
-                    is_green_week = latest_week['close'] > latest_week['open']
-
-                    # Apply filter logic
-                    if is_green_week and signal_type == 'FRD':
-                        print(f"    [TREND FILTER] {signal_date}: FRD signal filtered - weekly trend is bullish")
-                        filtered_count += 1
-                        continue
-                    elif not is_green_week and signal_type == 'FGD':
-                        print(f"    [TREND FILTER] {signal_date}: FGD signal filtered - weekly trend is bearish")
-                        filtered_count += 1
-                        continue
-                    else:
-                        print(f"    [TREND FILTER] {signal_date}: {signal_type} -> {signal_info['action']} (aligned with weekly trend)")
-                        filtered_signals[signal_date] = signal_info
-                else:
-                    # If no completed weeks, allow the signal
-                    print(f"    [TREND FILTER] {signal_date}: {signal_type} -> {signal_info['action']} (no weekly data)")
-                    filtered_signals[signal_date] = signal_info
-
-            print(f"  [DEBUG] Weekly trend filter removed {filtered_count} signals, {len(filtered_signals)} remain")
-            daily_signals = filtered_signals
+            print(f"  [DEBUG] Weekly trend filter DISABLED - using all {len(daily_signals)} signals")
 
             # Iterate through each hour in the backtest period
             current_time = start_date
@@ -515,6 +518,11 @@ class ACBBacktestEngine:
                                     print(f"  [SWEEP DETECTED] FGD: Asian low sweep ({sweep_depth:.0f} pips)")
                                     print(f"    Asian Low: {asian_low:.5f}")
                                     print(f"    London Low: {asian_sweep.get('london_low', 0):.5f}")
+                                else:
+                                    print(f"  [FILTER] FGD active but NO Asian Low sweep - SKIP (FGD = Longs only)")
+                                    # Move to next hour before continuing
+                                    current_time += timedelta(hours=1)
+                                    continue
 
                             elif signal_action == 'short':  # FRD - need Asian HIGH sweep
                                 print(f"  [DEBUG] Checking for Asian high sweep...")
@@ -533,6 +541,11 @@ class ACBBacktestEngine:
                                     print(f"  [SWEEP DETECTED] FRD: Asian high sweep ({sweep_depth:.0f} pips)")
                                     print(f"    Asian High: {asian_high:.5f}")
                                     print(f"    London High: {asian_sweep.get('london_high', 0):.5f}")
+                                else:
+                                    print(f"  [FILTER] FRD active but NO Asian High sweep - SKIP (FRD = Shorts only)")
+                                    # Move to next hour before continuing
+                                    current_time += timedelta(hours=1)
+                                    continue
 
                             # STEP 2: Only if sweep detected, then look for mentfx signal
                             if sweep_detected:
