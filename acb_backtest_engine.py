@@ -332,17 +332,25 @@ class ACBBacktestEngine:
 
         return trade
 
+    def get_pip_multiplier(self, symbol: str) -> int:
+        """Get pip multiplier based on symbol - JPY pairs use 100, others use 10000"""
+        return 100 if 'JPY' in symbol.upper() else 10000
+
     def close_trade(self, trade: Dict, exit_price: float, exit_time: datetime, exit_reason: str) -> Dict:
         """Close trade and calculate P&L"""
         direction = trade['direction']
         position_size = trade['position_size']
         entry_price = trade['entry_price']
+        symbol = trade['symbol']
+
+        # Get pip multiplier for this symbol
+        pip_multiplier = self.get_pip_multiplier(symbol)
 
         # Calculate P&L
         if direction == 'LONG':
-            pips = (exit_price - entry_price) * 10000
+            pips = (exit_price - entry_price) * pip_multiplier
         else:  # SHORT
-            pips = (entry_price - exit_price) * 10000
+            pips = (entry_price - exit_price) * pip_multiplier
 
         gross_profit = pips * position_size * 10  # $10 per pip per lot
         net_profit = gross_profit - trade['total_cost']
@@ -442,11 +450,22 @@ class ACBBacktestEngine:
             current_time = start_date
             open_trades = []
 
+            # Daily loss tracking: {(symbol, date): loss_count}
+            # Max 2 losing trades per pair per day
+            daily_losses = {}
+
             print(f"  [DEBUG] Starting hourly loop from {start_date} to {end_date}")
 
             while current_time <= end_date:
                 # Check for new trade setups FIRST
                 current_date = current_time.date()
+
+                # Reset daily loss counter at midnight (new trading day)
+                if current_time.hour == 0:
+                    # Remove entries for previous days
+                    keys_to_remove = [k for k in list(daily_losses.keys()) if k[1] != current_date]
+                    for k in keys_to_remove:
+                        del daily_losses[k]
 
                 # Skip if not in trading hours
                 if current_time.hour < 2 or current_time.hour > 23:
@@ -562,19 +581,22 @@ class ACBBacktestEngine:
                                     # COMPLETE STRATEGY: Sweep detected + mentfx signal during London session
                                     if direction_match:
 
+                                        # Get pip multiplier for this symbol
+                                        pip_mult = self.get_pip_multiplier(symbol)
+
                                         # Dynamic target calculation for exact 1:2RR
-                                        asian_range_pips = (asian_high - asian_low) * 10000
+                                        asian_range_pips = (asian_high - asian_low) * pip_mult
                                         entry_price = mentfx_signal['entry']
                                         stop_price = mentfx_signal['stop']
 
                                         if signal_action == 'long':  # FGD entry
-                                            stop_distance_pips = (entry_price - stop_price) * 10000
+                                            stop_distance_pips = (entry_price - stop_price) * pip_mult
 
                                             # Check if Asian range is wide enough for Asian target
                                             if asian_range_pips >= stop_distance_pips * 3:  # Wide range = room for 1:2RR
                                                 target = asian_high
                                                 target_type = "Asian High"
-                                                rr_ratio = (target - entry_price) * 10000 / stop_distance_pips
+                                                rr_ratio = (target - entry_price) * pip_mult / stop_distance_pips
                                             else:
                                                 # Tight range - use Previous Day High
                                                 # Find Previous Day High
@@ -587,9 +609,9 @@ class ACBBacktestEngine:
                                                     pdh = asian_high
 
                                                 # Calculate required stop for exact 1:2RR
-                                                target_pips = (pdh - entry_price) * 10000
+                                                target_pips = (pdh - entry_price) * pip_mult
                                                 required_stop_pips = target_pips / 2  # For 1:2RR
-                                                adjusted_stop = entry_price - (required_stop_pips / 10000)
+                                                adjusted_stop = entry_price - (required_stop_pips / pip_mult)
 
                                                 target = pdh
                                                 target_type = "Previous Day High"
@@ -598,13 +620,13 @@ class ACBBacktestEngine:
                                                 print(f"    [ADJUSTED STOP] Tight Asian range - using PDH target with adjusted stop: {required_stop_pips:.0f} pips")
 
                                         else:  # FRD entry
-                                            stop_distance_pips = (stop_price - entry_price) * 10000
+                                            stop_distance_pips = (stop_price - entry_price) * pip_mult
 
                                             # Check if Asian range is wide enough for Asian target
                                             if asian_range_pips >= stop_distance_pips * 3:
                                                 target = asian_low
                                                 target_type = "Asian Low"
-                                                rr_ratio = (entry_price - target) * 10000 / stop_distance_pips
+                                                rr_ratio = (entry_price - target) * pip_mult / stop_distance_pips
                                             else:
                                                 # Tight range - use Previous Day Low
                                                 # Find Previous Day Low
@@ -617,15 +639,24 @@ class ACBBacktestEngine:
                                                     pdl = asian_low
 
                                                 # Calculate required stop for exact 1:2RR
-                                                target_pips = (entry_price - pdl) * 10000
+                                                target_pips = (entry_price - pdl) * pip_mult
                                                 required_stop_pips = target_pips / 2  # For 1:2RR
-                                                adjusted_stop = entry_price + (required_stop_pips / 10000)
+                                                adjusted_stop = entry_price + (required_stop_pips / pip_mult)
 
                                                 target = pdl
                                                 target_type = "Previous Day Low"
                                                 rr_ratio = 2.0
                                                 stop_price = adjusted_stop
                                                 print(f"    [ADJUSTED STOP] Tight Asian range - using PDL target with adjusted stop: {required_stop_pips:.0f} pips")
+
+                                        # Check daily loss limit: Max 2 losing trades per pair per day
+                                        loss_key = (symbol, current_date)
+                                        current_losses = daily_losses.get(loss_key, 0)
+
+                                        if current_losses >= 2:
+                                            print(f"  [FILTER] {symbol} already has {current_losses} losses today - SKIPPING (Max 2 losses/day)")
+                                            current_time += timedelta(hours=1)
+                                            continue
 
                                         # Debug logging for complete setup
                                         print(f"  [EXECUTING TRADE] {current_time.strftime('%Y-%m-%d %H:00')}: {signal_action} trade")
@@ -639,6 +670,7 @@ class ACBBacktestEngine:
                                         print(f"    Target: {target:.5f} ({target_type})")
                                         print(f"    Risk/Reward: 1:{rr_ratio:.1f}")
                                         print(f"    Expected direction: {'UP' if signal_action == 'long' else 'DOWN'}")
+                                        print(f"    Daily losses so far: {current_losses}/2")
 
                                         # Execute trade
                                         trade_data = {
@@ -681,6 +713,10 @@ class ACBBacktestEngine:
                                 all_trades.append(closed_trade)
                                 open_trades.remove(trade)
                                 account_balance += closed_trade['net_profit']
+                                # Increment daily loss counter
+                                loss_key = (trade['symbol'], current_date)
+                                daily_losses[loss_key] = daily_losses.get(loss_key, 0) + 1
+                                print(f"    [DAILY LOSS TRACKER] {trade['symbol']} loss count: {daily_losses[loss_key]}/2")
 
                         elif trade['direction'] == 'SHORT':
                             if current_candle['high'] >= trade['stop_loss']:
@@ -689,6 +725,10 @@ class ACBBacktestEngine:
                                 all_trades.append(closed_trade)
                                 open_trades.remove(trade)
                                 account_balance += closed_trade['net_profit']
+                                # Increment daily loss counter
+                                loss_key = (trade['symbol'], current_date)
+                                daily_losses[loss_key] = daily_losses.get(loss_key, 0) + 1
+                                print(f"    [DAILY LOSS TRACKER] {trade['symbol']} loss count: {daily_losses[loss_key]}/2")
 
                         # Check take profit (only if still open)
                         if trade in open_trades:
@@ -943,8 +983,8 @@ def main():
     engine = ACBBacktestEngine()
 
     # Configure backtest parameters
-    symbols = ['AUDUSD', 'EURUSD']  # Testing AUDUSD and EURUSD with weekly trend filter and dynamic targeting
-    start_date = datetime.now() - timedelta(days=365)  # 1 year back
+    symbols = ['AUDUSD', 'EURUSD', 'GBPUSD']  # Final 3 pairs - NZDUSD, USDJPY, USDCHF, USDCAD all performed poorly
+    start_date = datetime.now() - timedelta(days=365)  # 1 year back - NOTE: 3-year test showed poor performance (1.02 PF), strategy is regime-dependent
     end_date = datetime.now()
 
     # Run backtest
