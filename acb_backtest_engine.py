@@ -390,8 +390,50 @@ class ACBBacktestEngine:
             # Detect FGD/FRD signals
             daily_signals = self.detect_fgd_frd_signals(daily_df, start_date)
             print(f"  [DEBUG] Found {len(daily_signals)} daily signals for {symbol}")
+
+            # Apply Weekly Trend Filter to daily signals
+            weekly_df_sorted = daily_df.resample('W').agg({
+                'open': 'first',
+                'high': 'max',
+                'low': 'min',
+                'close': 'last'
+            }).dropna()
+
+            filtered_signals = {}
+            filtered_count = 0
+
             for signal_date, signal_info in daily_signals.items():
-                print(f"    {signal_date}: {signal_info['type']} -> {signal_info['action']}")
+                signal_type = signal_info['type']
+
+                # Find the weekly candle that contains this signal date
+                signal_week_start = pd.Timestamp(signal_date - timedelta(days=signal_date.weekday()))
+
+                # Get completed weekly candles before this week
+                completed_weeks = weekly_df_sorted[weekly_df_sorted.index < signal_week_start]
+
+                if len(completed_weeks) > 0:
+                    latest_week = completed_weeks.iloc[-1]
+                    is_green_week = latest_week['close'] > latest_week['open']
+
+                    # Apply filter logic
+                    if is_green_week and signal_type == 'FRD':
+                        print(f"    [TREND FILTER] {signal_date}: FRD signal filtered - weekly trend is bullish")
+                        filtered_count += 1
+                        continue
+                    elif not is_green_week and signal_type == 'FGD':
+                        print(f"    [TREND FILTER] {signal_date}: FGD signal filtered - weekly trend is bearish")
+                        filtered_count += 1
+                        continue
+                    else:
+                        print(f"    [TREND FILTER] {signal_date}: {signal_type} -> {signal_info['action']} (aligned with weekly trend)")
+                        filtered_signals[signal_date] = signal_info
+                else:
+                    # If no completed weeks, allow the signal
+                    print(f"    [TREND FILTER] {signal_date}: {signal_type} -> {signal_info['action']} (no weekly data)")
+                    filtered_signals[signal_date] = signal_info
+
+            print(f"  [DEBUG] Weekly trend filter removed {filtered_count} signals, {len(filtered_signals)} remain")
+            daily_signals = filtered_signals
 
             # Iterate through each hour in the backtest period
             current_time = start_date
@@ -507,30 +549,90 @@ class ACBBacktestEngine:
                                     # COMPLETE STRATEGY: Sweep detected + mentfx signal during London session
                                     if direction_match:
 
-                                        # Calculate target - Asian range extremes for 1:2RR
-                                        if mentfx_signal['type'] == 'bullish':
-                                            # LONG: Target is Asian range HIGH
-                                            target = asian_high
-                                        else:
-                                            # SHORT: Target is Asian range LOW
-                                            target = asian_low
+                                        # Dynamic target calculation for exact 1:2RR
+                                        asian_range_pips = (asian_high - asian_low) * 10000
+                                        entry_price = mentfx_signal['entry']
+                                        stop_price = mentfx_signal['stop']
+
+                                        if signal_action == 'long':  # FGD entry
+                                            stop_distance_pips = (entry_price - stop_price) * 10000
+
+                                            # Check if Asian range is wide enough for Asian target
+                                            if asian_range_pips >= stop_distance_pips * 3:  # Wide range = room for 1:2RR
+                                                target = asian_high
+                                                target_type = "Asian High"
+                                                rr_ratio = (target - entry_price) * 10000 / stop_distance_pips
+                                            else:
+                                                # Tight range - use Previous Day High
+                                                # Find Previous Day High
+                                                current_date_idx = daily_df.index.get_loc(pd.Timestamp(current_date))
+                                                if current_date_idx > 0:
+                                                    prev_day = daily_df.iloc[current_date_idx - 1]
+                                                    pdh = prev_day['high']
+                                                else:
+                                                    # If no previous day data, use Asian target
+                                                    pdh = asian_high
+
+                                                # Calculate required stop for exact 1:2RR
+                                                target_pips = (pdh - entry_price) * 10000
+                                                required_stop_pips = target_pips / 2  # For 1:2RR
+                                                adjusted_stop = entry_price - (required_stop_pips / 10000)
+
+                                                target = pdh
+                                                target_type = "Previous Day High"
+                                                rr_ratio = 2.0
+                                                stop_price = adjusted_stop
+                                                print(f"    [ADJUSTED STOP] Tight Asian range - using PDH target with adjusted stop: {required_stop_pips:.0f} pips")
+
+                                        else:  # FRD entry
+                                            stop_distance_pips = (stop_price - entry_price) * 10000
+
+                                            # Check if Asian range is wide enough for Asian target
+                                            if asian_range_pips >= stop_distance_pips * 3:
+                                                target = asian_low
+                                                target_type = "Asian Low"
+                                                rr_ratio = (entry_price - target) * 10000 / stop_distance_pips
+                                            else:
+                                                # Tight range - use Previous Day Low
+                                                # Find Previous Day Low
+                                                current_date_idx = daily_df.index.get_loc(pd.Timestamp(current_date))
+                                                if current_date_idx > 0:
+                                                    prev_day = daily_df.iloc[current_date_idx - 1]
+                                                    pdl = prev_day['low']
+                                                else:
+                                                    # If no previous day data, use Asian target
+                                                    pdl = asian_low
+
+                                                # Calculate required stop for exact 1:2RR
+                                                target_pips = (entry_price - pdl) * 10000
+                                                required_stop_pips = target_pips / 2  # For 1:2RR
+                                                adjusted_stop = entry_price + (required_stop_pips / 10000)
+
+                                                target = pdl
+                                                target_type = "Previous Day Low"
+                                                rr_ratio = 2.0
+                                                stop_price = adjusted_stop
+                                                print(f"    [ADJUSTED STOP] Tight Asian range - using PDL target with adjusted stop: {required_stop_pips:.0f} pips")
 
                                         # Debug logging for complete setup
                                         print(f"  [EXECUTING TRADE] {current_time.strftime('%Y-%m-%d %H:00')}: {signal_action} trade")
                                         print(f"    Setup: {daily_signal['type']} + {sweep_details['type']} + {mentfx_signal['signal']}")
-                                        print(f"    Entry: {mentfx_signal['entry']:.5f}")
-                                        print(f"    Stop: {mentfx_signal['stop']:.5f}")
+                                        print(f"    Entry: {entry_price:.5f}")
+                                        print(f"    Stop: {stop_price:.5f}")
                                         print(f"    Asian Low: {asian_low:.5f}")
                                         print(f"    Asian High: {asian_high:.5f}")
-                                        print(f"    Target: {target:.5f}")
+                                        print(f"    Asian Range: {asian_range_pips:.0f} pips")
+                                        print(f"    Stop Distance: {stop_distance_pips:.0f} pips")
+                                        print(f"    Target: {target:.5f} ({target_type})")
+                                        print(f"    Risk/Reward: 1:{rr_ratio:.1f}")
                                         print(f"    Expected direction: {'UP' if signal_action == 'long' else 'DOWN'}")
 
                                         # Execute trade
                                         trade_data = {
                                             'symbol': symbol,
                                             'direction': 'LONG' if mentfx_signal['type'] == 'bullish' else 'SHORT',
-                                            'entry': mentfx_signal['entry'],
-                                            'stop': mentfx_signal['stop'],
+                                            'entry': entry_price,
+                                            'stop': stop_price,
                                             'target': target,
                                             'entry_time': current_time,
                                             'entry_date': current_date,
@@ -828,8 +930,8 @@ def main():
     engine = ACBBacktestEngine()
 
     # Configure backtest parameters
-    symbols = ['AUDUSD']  # Testing AUDUSD only as requested
-    start_date = datetime.now() - timedelta(weeks=2)  # 2 weeks back
+    symbols = ['AUDUSD', 'EURUSD']  # Testing AUDUSD and EURUSD with weekly trend filter and dynamic targeting
+    start_date = datetime.now() - timedelta(days=365)  # 1 year back
     end_date = datetime.now()
 
     # Run backtest

@@ -40,17 +40,80 @@ from acb import (
     DMRTargetCalculator
 )
 
+def is_market_closed():
+    """Check if the forex market is closed (weekend)"""
+    now = datetime.now()
+
+    # Forex market is closed on Saturdays and Sundays
+    if now.weekday() >= 5:  # 5=Saturday, 6=Sunday
+        # Check if it's truly weekend (after market close on Friday)
+        if now.weekday() == 5:  # Saturday
+            return True, "Saturday"
+        elif now.weekday() == 6:  # Sunday
+            return True, "Sunday"
+
+    # Check major holidays if needed (can add more holidays here)
+    # Christmas, New Year, etc.
+    major_holidays = [
+        (12, 25),  # Christmas
+        (1, 1),    # New Year's Day
+        # Add more holidays as needed
+    ]
+
+    if (now.month, now.day) in major_holidays:
+        return True, f"Holiday: {now.strftime('%B %d')}"
+
+    return False, "Open"
+
 def run_unified_master_analysis():
     """Ultimate complete analysis with 100% feature display"""
     symbol_base = "AUDUSD"  # Default symbol - can be changed when calling directly
     symbol = get_oanda_symbol(symbol_base)
     now = datetime.now()
 
+    # Check if market is closed
+    is_closed, reason = is_market_closed()
+
+    if is_closed:
+        print("=" * 100)
+        print(f"{symbol_base} UNIFIED MASTER ANALYSIS - 100% FEATURES")
+        print(f"Date: {now.strftime('%A, %B %d, %Y')}")
+        print(f"Time: {now.strftime('%H:%M:%S')} UTC")
+        print(f"Status: MARKET CLOSED - {reason}")
+        print("=" * 100)
+        print()
+        print(f"[MARKET CLOSED] The forex market is currently closed ({reason})")
+        print(f"[WAITING] Please wait for Monday's price action at 21:00 GMT / 16:00 EST")
+        print()
+        print(f"[PREVIEW] Current market analysis available, but:")
+        print(f"  - Price is not moving (market closed)")
+        print(f"  - Wait for Monday open to see real price action")
+        print(f"  - Prepare setups based on weekly trend analysis")
+        print()
+        print(f"[TRADING SESSIONS]")
+        print(f"  - Market Reopens: Monday 21:00 GMT (Sunday 4pm EST)")
+        print(f"  - Asian Session: Monday 02:00-07:00 UTC")
+        print(f"  - London Session: Monday 06:00-10:00 UTC")
+        print(f"  - NY Session: Monday 13:00-17:00 UTC")
+        print()
+        print(f"[CURRENCY PAIR: {symbol_base}]")
+        print(f"  - Last Close: Check MT5 or broker for Friday close price")
+        print(f"  - Gap Risk: Be aware of potential weekend gaps")
+        print()
+        print(f"[SETUP PREPARATION]")
+        print(f"  - Review weekly trend for Monday bias")
+        print(f"  - Identify key support/resistance levels")
+        print(f"  - Watch for Sunday 21:00 GMT open")
+        print("=" * 100)
+        return
+
+    # If market is open, proceed with full analysis
     print("=" * 100)
     print(f"{symbol_base} UNIFIED MASTER ANALYSIS - 100% FEATURES")
     print(f"Date: {now.strftime('%A, %B %d, %Y')}")
     print(f"Time: {now.strftime('%H:%M:%S UTC')}")
-    print(f"Trading Day: {'YES' if now.weekday() < 5 else 'WEEKEND'}")
+    print(f"Trading Day: {now.strftime('%A')}")
+    print(f"Status: MARKET OPEN - Active Trading")
     print("=" * 100)
 
     if not mt5.initialize():
@@ -568,7 +631,7 @@ def calculate_session_metrics(df_h1: pd.DataFrame) -> Dict:
     if current_session in ["London", "New York"]:
         # Get today's Asian session properly
         today = datetime.now().date()
-        today_start = datetime.combine(today, datetime.min.time()).replace(hour=0)
+        today_start = datetime.combine(today, datetime.min.time()).replace(hour=2)
         today_end = datetime.combine(today, datetime.min.time()).replace(hour=7)
 
         asian_data = df_h1[
@@ -743,21 +806,36 @@ def analyze_monday_breakout(df_h1: pd.DataFrame, dmr_levels: Dict) -> Dict:
 
 
 def determine_overall_bias(analysis: Dict, signals: Dict, phase_analysis: Dict) -> Dict:
-    """Determine overall market bias"""
+    """
+    Determine overall market bias - STACEY BURKE ACB LOGIC
+
+    GOLDEN RULE: FGD = BUYING DAY (Longs only), FRD = SELLING DAY (Shorts only)
+    """
     bias_score = 0
     reasons = []
 
-    # FGD/FRD influence
+    # FGD/FRD influence - PRIMARY FILTER
     fgd = analysis.get('fgd_pattern', {})
-    if fgd.get('pattern_detected'):
-        if fgd.get('trade_direction') == 'LONG':
-            bias_score += 30
-            reasons.append("FGD pattern detected - bullish")
-        else:
-            bias_score -= 30
-            reasons.append("FRD pattern detected - bearish")
+    fgd_detected = fgd.get('pattern_detected', False)
+    trade_direction = fgd.get('trade_direction', '')
+    trade_today = fgd.get('trade_today', False)
 
-    # Signal influence - signals is now a dict, not a list
+    if fgd_detected:
+        if trade_direction == 'LONG':
+            # FGD (First Green Day) = BUYING DAY
+            bias_score = 50  # Strong bullish
+            reasons.append("FGD (First Green Day) - BUYING DAY - Longs ONLY")
+        elif trade_direction == 'SHORT':
+            # FRD (First Red Day) = SELLING DAY
+            bias_score = -50  # Strong bearish
+            reasons.append("FRD (First Red Day) - SELLING DAY - Shorts ONLY")
+    else:
+        # No FGD/FRD detected - neutral
+        bias_score = 0
+        reasons.append("No FGD/FRD pattern detected - NEUTRAL")
+
+    # Filter signals based on FGD/FRD direction
+    # FGD = Only consider long signals, FRD = Only consider short signals
     all_sig_lists = [
         signals.get('frd_fgd_signals', []),
         signals.get('inside_day_signals', []),
@@ -765,56 +843,66 @@ def determine_overall_bias(analysis: Dict, signals: Dict, phase_analysis: Dict) 
         signals.get('asian_range_signals', [])
     ]
 
-    bullish_signals = sum(1 for s in sum(all_sig_lists, []) if 'long' in str(s.get('direction', '')).lower())
-    bearish_signals = sum(1 for s in sum(all_sig_lists, []) if 'short' in str(s.get('direction', '')).lower())
-
-    if bullish_signals > bearish_signals:
-        bias_score += 20
-        reasons.append(f"{bullish_signals} bullish vs {bearish_signals} bearish signals")
-    elif bearish_signals > bullish_signals:
-        bias_score -= 20
-        reasons.append(f"{bearish_signals} bearish vs {bullish_signals} bullish signals")
-
-    # Market phase
-    phase = phase_analysis.get('current_phase', {}).value
-    if 'bullish' in phase.lower():
-        bias_score += 15
-    elif 'bearish' in phase.lower():
-        bias_score -= 15
-
-    # Confidence
-    confidence = min(100, max(0, 50 + bias_score))
-
-    if bias_score > 20:
-        bias = "STRONGLY BULLISH"
-    elif bias_score > 5:
-        bias = "BULLISH"
-    elif bias_score > -5:
-        bias = "NEUTRAL"
-    elif bias_score > -20:
-        bias = "BEARISH"
+    # Count ONLY aligned signals
+    if trade_direction == 'LONG' and fgd_detected:
+        # Buying day - count only bullish signals
+        bullish_signals = sum(1 for s in sum(all_sig_lists, []) if 'long' in str(s.get('direction', '')).lower())
+        reasons.append(f"Bullish signals: {bullish_signals} (Short signals IGNORED - Buying day)")
+    elif trade_direction == 'SHORT' and fgd_detected:
+        # Selling day - count only bearish signals
+        bearish_signals = sum(1 for s in sum(all_sig_lists, []) if 'short' in str(s.get('direction', '')).lower())
+        reasons.append(f"Bearish signals: {bearish_signals} (Long signals IGNORED - Selling day)")
     else:
-        bias = "STRONGLY BEARISH"
+        # No FGD/FRD - show all signals
+        bullish_signals = sum(1 for s in sum(all_sig_lists, []) if 'long' in str(s.get('direction', '')).lower())
+        bearish_signals = sum(1 for s in sum(all_sig_lists, []) if 'short' in str(s.get('direction', '')).lower())
+        reasons.append(f"Bullish: {bullish_signals} | Bearish: {bearish_signals} (No FGD/FRD filter)")
 
-    # Action plan
+    # Determine final bias
+    if trade_direction == 'LONG' and fgd_detected:
+        bias = "STRONGLY BULLISH (FGD - BUYING DAY)"
+        confidence = 85
+    elif trade_direction == 'SHORT' and fgd_detected:
+        bias = "STRONGLY BEARISH (FRD - SELLING DAY)"
+        confidence = 85
+    else:
+        # No FGD/FRD - use phase
+        
+        phase = phase_analysis.get('current_phase', None)
+        phase_value = phase.value if hasattr(phase, 'value') else str(phase)
+        if 'bullish' in phase_value.lower():
+            bias = "BULLISH (No FGD/FRD - Market Phase)"
+            confidence = 50
+        elif 'bearish' in phase_value.lower():
+            bias = "BEARISH (No FGD/FRD - Market Phase)"
+            confidence = 50
+        else:
+            bias = "NEUTRAL (No FGD/FRD - Wait for setup)"
+            confidence = 50
+
+    # Action plan based on FGD/FRD
     action_plan = []
-    if bias_score > 10:
-        action_plan.append("[LOOK] for long entry opportunities")
-    elif bias_score < -10:
-        action_plan.append("[LOOK] for short entry opportunities")
-    else:
-        action_plan.append("[WAIT] for clear directional bias")
 
-    if fgd.get('trade_today'):
-        action_plan.append("[ACTIVE] FGD/FRD setup in play")
+    if trade_direction == 'LONG' and fgd_detected:
+        action_plan.append("[LOOK] for LONG entry opportunities (Asian Low sweep, pullbacks)")
+        action_plan.append("[IGNORE] all short signals - FGD = Buying day")
+    elif trade_direction == 'SHORT' and fgd_detected:
+        action_plan.append("[LOOK] for SHORT entry opportunities (Asian High sweep, pullbacks)")
+        action_plan.append("[IGNORE] all long signals - FRD = Selling day")
     else:
-        action_plan.append("[MONITOR] for FGD/FRD trigger")
+        action_plan.append("[WAIT] for FGD or FRD pattern to trigger")
+        action_plan.append("[MONITOR] Asian range for sweep + rejection setup")
+
+    if trade_today:
+        action_plan.append("[ACTIVE] Trade today - FGD/FRD in play")
 
     return {
         'bias': bias,
         'confidence': confidence,
         'primary_signals': reasons,
         'action_plan': action_plan,
+        'fgd_frd_filter': trade_direction if fgd_detected else 'NONE',
+        'trade_today': trade_today,
         'suggested_stop': 'Use recent swing or structure level',
         'position_size_advice': 'Standard 1% risk management'
     }
